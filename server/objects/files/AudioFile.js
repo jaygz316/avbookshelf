@@ -1,20 +1,14 @@
 const { isNullOrNaN } = require('../../utils/index')
-
-const Logger = require('../../Logger')
-const AudioFileMetadata = require('../metadata/AudioFileMetadata')
+const AudioMetaTags = require('../metadata/AudioMetaTags')
+const FileMetadata = require('../metadata/FileMetadata')
 
 class AudioFile {
   constructor(data) {
     this.index = null
     this.ino = null
-    this.filename = null
-    this.ext = null
-    this.path = null
-    this.fullPath = null
-    this.mtimeMs = null
-    this.ctimeMs = null
-    this.birthtimeMs = null
+    this.metadata = null
     this.addedAt = null
+    this.updatedAt = null
 
     this.trackNumFromMeta = null
     this.discNumFromMeta = null
@@ -23,7 +17,6 @@ class AudioFile {
 
     this.format = null
     this.duration = null
-    this.size = null
     this.bitRate = null
     this.language = null
     this.codec = null
@@ -34,7 +27,7 @@ class AudioFile {
     this.embeddedCoverArt = null
 
     // Tags scraped from the audio file
-    this.metadata = null
+    this.metaTags = null
 
     this.manuallyVerified = false
     this.invalid = false
@@ -50,14 +43,9 @@ class AudioFile {
     return {
       index: this.index,
       ino: this.ino,
-      filename: this.filename,
-      ext: this.ext,
-      path: this.path,
-      fullPath: this.fullPath,
-      mtimeMs: this.mtimeMs,
-      ctimeMs: this.ctimeMs,
-      birthtimeMs: this.birthtimeMs,
+      metadata: this.metadata.toJSON(),
       addedAt: this.addedAt,
+      updatedAt: this.updatedAt,
       trackNumFromMeta: this.trackNumFromMeta,
       discNumFromMeta: this.discNumFromMeta,
       trackNumFromFilename: this.trackNumFromFilename,
@@ -68,7 +56,6 @@ class AudioFile {
       error: this.error || null,
       format: this.format,
       duration: this.duration,
-      size: this.size,
       bitRate: this.bitRate,
       language: this.language,
       codec: this.codec,
@@ -77,21 +64,16 @@ class AudioFile {
       channelLayout: this.channelLayout,
       chapters: this.chapters,
       embeddedCoverArt: this.embeddedCoverArt,
-      metadata: this.metadata ? this.metadata.toJSON() : {}
+      metaTags: this.metaTags ? this.metaTags.toJSON() : {}
     }
   }
 
   construct(data) {
     this.index = data.index
     this.ino = data.ino
-    this.filename = data.filename
-    this.ext = data.ext
-    this.path = data.path
-    this.fullPath = data.fullPath
-    this.mtimeMs = data.mtimeMs || 0
-    this.ctimeMs = data.ctimeMs || 0
-    this.birthtimeMs = data.birthtimeMs || 0
+    this.metadata = new FileMetadata(data.metadata || {})
     this.addedAt = data.addedAt
+    this.updatedAt = data.updatedAt
     this.manuallyVerified = !!data.manuallyVerified
     this.invalid = !!data.invalid
     this.exclude = !!data.exclude
@@ -106,7 +88,6 @@ class AudioFile {
 
     this.format = data.format
     this.duration = data.duration
-    this.size = data.size
     this.bitRate = data.bitRate
     this.language = data.language
     this.codec = data.codec || null
@@ -116,27 +97,17 @@ class AudioFile {
     this.chapters = data.chapters
     this.embeddedCoverArt = data.embeddedCoverArt || null
 
-    // Old version of AudioFile used `tagAlbum` etc.
-    var isOldVersion = Object.keys(data).find(key => key.startsWith('tag'))
-    if (isOldVersion) {
-      this.metadata = new AudioFileMetadata(data)
-    } else {
-      this.metadata = new AudioFileMetadata(data.metadata || {})
-    }
+    this.metaTags = new AudioMetaTags(data.metaTags || {})
   }
 
   // New scanner creates AudioFile from AudioFileScanner
   setDataFromProbe(fileData, probeData) {
     this.index = fileData.index || null
     this.ino = fileData.ino || null
-    this.filename = fileData.filename
-    this.ext = fileData.ext
-    this.path = fileData.path
-    this.fullPath = fileData.fullPath
-    this.mtimeMs = fileData.mtimeMs || 0
-    this.ctimeMs = fileData.ctimeMs || 0
-    this.birthtimeMs = fileData.birthtimeMs || 0
+
+    // TODO: Update file metadata for set data from probe
     this.addedAt = Date.now()
+    this.updatedAt = Date.now()
 
     this.trackNumFromMeta = fileData.trackNumFromMeta
     this.discNumFromMeta = fileData.discNumFromMeta
@@ -145,7 +116,6 @@ class AudioFile {
 
     this.format = probeData.format
     this.duration = probeData.duration
-    this.size = probeData.size
     this.bitRate = probeData.bitRate || null
     this.language = probeData.language
     this.codec = probeData.codec || null
@@ -153,7 +123,7 @@ class AudioFile {
     this.channels = probeData.channels
     this.channelLayout = probeData.channelLayout
     this.chapters = probeData.chapters || []
-    this.metadata = probeData.audioFileMetadata
+    this.metaTags = probeData.audioFileMetadata
     this.embeddedCoverArt = probeData.embeddedCoverArt
   }
 
@@ -204,15 +174,17 @@ class AudioFile {
 
   // If the file or parent directory was renamed it is synced here
   syncFile(newFile) {
-    var hasUpdates = false
-    var keysToSync = ['path', 'fullPath', 'ext', 'filename']
-    keysToSync.forEach((key) => {
-      if (newFile[key] !== undefined && newFile[key] !== this[key]) {
-        hasUpdates = true
-        this[key] = newFile[key]
-      }
-    })
-    return hasUpdates
+    // TODO: Sync file would update the file info if needed
+    return false
+    // var hasUpdates = false
+    // var keysToSync = ['path', 'relPath', 'ext', 'filename']
+    // keysToSync.forEach((key) => {
+    //   if (newFile[key] !== undefined && newFile[key] !== this[key]) {
+    //     hasUpdates = true
+    //     this[key] = newFile[key]
+    //   }
+    // })
+    // return hasUpdates
   }
 
   updateFromScan(scannedAudioFile) {
@@ -224,9 +196,9 @@ class AudioFile {
     newjson.addedAt = this.addedAt
 
     for (const key in newjson) {
-      if (key === 'metadata') {
-        if (!this.metadata || !this.metadata.isEqual(scannedAudioFile.metadata)) {
-          this.metadata = scannedAudioFile.metadata
+      if (key === 'metaTags') {
+        if (!this.metaTags || !this.metaTags.isEqual(scannedAudioFile.metadata)) {
+          this.metaTags = scannedAudioFile.metadata
           hasUpdated = true
         }
       } else if (key === 'chapters') {
