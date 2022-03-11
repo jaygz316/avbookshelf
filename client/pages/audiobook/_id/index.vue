@@ -164,7 +164,7 @@
 
           <tables-audio-files-table v-if="otherAudioFiles.length" :audiobook-id="audiobook.id" :files="otherAudioFiles" class="mt-6" />
 
-          <tables-other-files-table v-if="otherFiles.length" :audiobook="audiobook" :files="otherFiles" class="mt-6" />
+          <tables-library-files-table v-if="otherFiles.length" :audiobook="audiobook" :files="otherFiles" class="mt-6" />
         </div>
       </div>
     </div>
