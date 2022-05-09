@@ -13,7 +13,7 @@
     <div ref="slider" class="w-full overflow-y-hidden overflow-x-auto no-scroll -mx-2" style="scroll-behavior: smooth" @scroll="scrolled">
       <div class="flex" :style="{ height: height + 'px' }">
         <template v-for="(item, index) in items">
-          <cards-lazy-book-card :key="item.id" :ref="`slider-item-${item.id}`" :index="index" :book-mount="item" :height="cardHeight" :width="cardWidth" :book-cover-aspect-ratio="bookCoverAspectRatio" :bookshelf-view="$constants.BookshelfView.AUTHOR" class="relative mx-2" @edit="editItem" @select="selectItem" />
+          <cards-lazy-book-card :key="item.id" :ref="`slider-item-${item.id}`" :index="index" :book-mount="item" :height="cardHeight" :width="cardWidth" :book-cover-aspect-ratio="bookCoverAspectRatio" :bookshelf-view="bookshelfView" class="relative mx-2" @edit="editItem" @select="selectItem" @hook:updated="setScrollVars" />
         </template>
       </div>
     </div>
@@ -30,6 +30,10 @@ export default {
     height: {
       type: Number,
       default: 192
+    },
+    bookshelfView: {
+      type: Number,
+      default: 1
     }
   },
   data() {
@@ -44,8 +48,11 @@ export default {
     bookCoverAspectRatio() {
       return this.$store.getters['getBookCoverAspectRatio']
     },
+    cardScaleMulitiplier() {
+      return this.height / 192
+    },
     cardHeight() {
-      return this.height - 40
+      return this.height - 40 * this.cardScaleMulitiplier
     },
     cardWidth() {
       return this.cardHeight / this.bookCoverAspectRatio
@@ -125,8 +132,6 @@ export default {
     this.setScrollVars()
   },
   mounted() {
-    this.setScrollVars()
-
     this.$eventBus.$on('bookshelf-clear-selection', this.clearSelectedEntities)
     this.$eventBus.$on('item-selected', this.itemSelectedEvt)
   },
