@@ -17,7 +17,7 @@
       <div class="w-full h-px bg-white bg-opacity-10 my-2" />
 
       <div class="py-2">
-        <h1 class="text-lg mb-2 text-white text-opacity-90 px-2 sm:px-0">Listening Sessions ({{ listeningSessions.length }})</h1>
+        <h1 class="text-lg mb-2 text-white text-opacity-90 px-2 sm:px-0">Listening Sessions</h1>
         <div v-if="listeningSessions.length">
           <table class="userSessionsTable">
             <tr class="bg-primary bg-opacity-40">
