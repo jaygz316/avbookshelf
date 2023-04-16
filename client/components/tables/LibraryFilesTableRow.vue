@@ -3,7 +3,7 @@
     <td class="px-4">
       {{ showFullPath ? file.metadata.path : file.metadata.relPath }}
     </td>
-    <td class="font-mono">
+    <td>
       {{ $bytesPretty(file.metadata.size) }}
     </td>
     <td class="text-xs">
@@ -25,7 +25,8 @@ export default {
     file: {
       type: Object,
       default: () => {}
-    }
+    },
+    inModal: Boolean
   },
   data() {
     return {}
@@ -39,6 +40,9 @@ export default {
     },
     userCanDelete() {
       return this.$store.getters['user/getUserCanDelete']
+    },
+    userIsAdmin() {
+      return this.$store.getters['user/getIsAdminOrUp']
     },
     downloadUrl() {
       return `${process.env.serverUrl}/s/item/${this.libraryItemId}/${this.$encodeUriPath(this.file.metadata.relPath).replace(/^\//, '')}?token=${this.userToken}`
@@ -57,6 +61,13 @@ export default {
           action: 'delete'
         })
       }
+      // Currently not showing this option in the Files tab modal
+      if (this.userIsAdmin && this.file.audioFile && !this.inModal) {
+        items.push({
+          text: this.$strings.LabelMoreInfo,
+          action: 'more'
+        })
+      }
       return items
     }
   },
@@ -66,6 +77,8 @@ export default {
         this.deleteLibraryFile()
       } else if (action === 'download') {
         this.downloadLibraryFile()
+      } else if (action === 'more') {
+        this.$emit('showMore', this.file.audioFile)
       }
     },
     deleteLibraryFile() {
