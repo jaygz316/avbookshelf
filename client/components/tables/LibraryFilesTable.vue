@@ -38,7 +38,6 @@ export default {
       type: Object,
       default: () => {}
     },
-    isMissing: Boolean,
     expanded: Boolean, // start expanded
     inModal: Boolean
   },
