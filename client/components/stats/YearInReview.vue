@@ -24,12 +24,15 @@ export default {
       if (!this.yearStats) return
 
       const canvas = document.createElement('canvas')
-      canvas.width = 400
-      canvas.height = 400
+      canvas.width = 800
+      canvas.height = 800
       const ctx = canvas.getContext('2d')
 
       const createRoundedRect = (x, y, w, h) => {
-        ctx.fillStyle = '#37383866'
+        const grd1 = ctx.createLinearGradient(x, y, x + w, y + h)
+        grd1.addColorStop(0, '#44444466')
+        grd1.addColorStop(1, '#ffffff22')
+        ctx.fillStyle = grd1
         ctx.strokeStyle = '#C0C0C0aa'
         ctx.beginPath()
         ctx.roundRect(x, y, w, h, [20])
@@ -72,8 +75,13 @@ export default {
       if (this.yearStats.booksWithCovers.length) {
         let index = 0
         ctx.globalAlpha = 0.25
-        for (let x = 0; x < 4; x++) {
-          for (let y = 0; y < 4; y++) {
+        ctx.save()
+        ctx.translate(canvas.width / 2, canvas.height / 2)
+        ctx.rotate((-Math.PI / 180) * 25)
+        ctx.translate(-canvas.width / 2, -canvas.height / 2)
+        ctx.translate(-130, -120)
+        for (let x = 0; x < 5; x++) {
+          for (let y = 0; y < 5; y++) {
             const coverIndex = index % this.yearStats.booksWithCovers.length
             let libraryItemId = this.yearStats.booksWithCovers[coverIndex]
             index++
@@ -82,7 +90,13 @@ export default {
               const img = new Image()
               img.crossOrigin = 'anonymous'
               img.addEventListener('load', () => {
-                ctx.drawImage(img, 100 * x, 100 * y, 100, 100)
+                let sw = img.width
+                if (img.width > img.height) {
+                  sw = img.height
+                }
+                let sx = -(sw - img.width) / 2
+                let sy = -(sw - img.height) / 2
+                ctx.drawImage(img, sx, sy, sw, sw, 215 * x, 215 * y, 215, 215)
                 resolve()
               })
               img.addEventListener('error', () => {
@@ -92,13 +106,14 @@ export default {
             })
           }
         }
+        ctx.restore()
       }
 
       ctx.globalAlpha = 1
       ctx.textBaseline = 'middle'
 
       // Create gradient
-      const grd1 = ctx.createLinearGradient(0, 0, 400, 400)
+      const grd1 = ctx.createLinearGradient(0, 0, canvas.width, canvas.height)
       grd1.addColorStop(0, '#000000aa')
       grd1.addColorStop(1, '#cd9d49aa')
       ctx.fillStyle = grd1
@@ -107,60 +122,60 @@ export default {
       // Top Abs icon
       let tanColor = '#ffdb70'
       ctx.fillStyle = tanColor
-      ctx.font = '32px absicons'
-      ctx.fillText('\ue900', 15, 32)
+      ctx.font = '42px absicons'
+      ctx.fillText('\ue900', 15, 36)
 
       // Top text
-      addText('audiobookshelf', '22px', 'normal', tanColor, '0px', 55, 22)
-      addText(`${this.year} YEAR IN REVIEW`, '14px', 'bold', 'white', '1px', 55, 44)
+      addText('audiobookshelf', '28px', 'normal', tanColor, '0px', 65, 28)
+      addText(`${this.year} YEAR IN REVIEW`, '18px', 'bold', 'white', '1px', 65, 51)
 
       // Top left box
-      createRoundedRect(10, 65, 185, 80)
-      addText(this.yearStats.numBooksFinished, '32px', 'bold', 'white', '0px', 63, 98)
-      addText('books finished', '14px', 'normal', tanColor, '0px', 63, 120)
+      createRoundedRect(50, 100, 340, 160)
+      addText(this.yearStats.numBooksFinished, '64px', 'bold', 'white', '0px', 160, 165)
+      addText('books finished', '28px', 'normal', tanColor, '0px', 160, 210)
       const readIconPath = new Path2D()
-      readIconPath.addPath(new Path2D('M19 1H5c-1.1 0-1.99.9-1.99 2L3 15.93c0 .69.35 1.3.88 1.66L12 23l8.11-5.41c.53-.36.88-.97.88-1.66L21 3c0-1.1-.9-2-2-2zm-9 15l-5-5 1.41-1.41L10 13.17l7.59-7.59L19 7l-9 9z'), { a: 1.2, d: 1.2, e: 26, f: 90 })
+      readIconPath.addPath(new Path2D('M19 1H5c-1.1 0-1.99.9-1.99 2L3 15.93c0 .69.35 1.3.88 1.66L12 23l8.11-5.41c.53-.36.88-.97.88-1.66L21 3c0-1.1-.9-2-2-2zm-9 15l-5-5 1.41-1.41L10 13.17l7.59-7.59L19 7l-9 9z'), { a: 2, d: 2, e: 100, f: 160 })
       ctx.fillStyle = '#ffffff'
       ctx.fill(readIconPath)
 
       // Box top right
-      createRoundedRect(205, 65, 185, 80)
-      addText(this.$elapsedPrettyExtended(this.yearStats.totalListeningTime, true, false), '20px', 'bold', 'white', '0px', 257, 96)
-      addText('spent listening', '14px', 'normal', tanColor, '0px', 257, 117)
-      addIcon('watch_later', 'white', '32px', 218, 105)
+      createRoundedRect(410, 100, 340, 160)
+      addText(this.$elapsedPrettyExtended(this.yearStats.totalListeningTime, true, false), '40px', 'bold', 'white', '0px', 500, 165)
+      addText('spent listening', '28px', 'normal', tanColor, '0.5px', 500, 205)
+      addIcon('watch_later', 'white', '52px', 440, 180)
 
       // Box bottom left
-      createRoundedRect(10, 155, 185, 80)
-      addText(this.yearStats.totalListeningSessions, '32px', 'bold', 'white', '0px', 65, 188)
-      addText('sessions', '14px', 'normal', tanColor, '1px', 65, 210)
-      addIcon('headphones', 'white', '32px', 25, 195)
+      createRoundedRect(50, 280, 340, 160)
+      addText(this.yearStats.totalListeningSessions, '64px', 'bold', 'white', '0px', 160, 345)
+      addText('sessions', '28px', 'normal', tanColor, '1px', 160, 390)
+      addIcon('headphones', 'white', '52px', 95, 360)
 
       // Box bottom right
-      createRoundedRect(205, 155, 185, 80)
-      addText(this.yearStats.numBooksListened, '32px', 'bold', 'white', '0px', 258, 188)
-      addText('books listened to', '14px', 'normal', tanColor, '0.65px', 258, 210)
-      addIcon('local_library', 'white', '32px', 220, 195)
+      createRoundedRect(410, 280, 340, 160)
+      addText(this.yearStats.numBooksListened, '64px', 'bold', 'white', '0px', 500, 345)
+      addText('books listened to', '28px', 'normal', tanColor, '0.5px', 500, 390)
+      addIcon('local_library', 'white', '52px', 440, 360)
 
       // Text stats
       const topNarrator = this.yearStats.mostListenedNarrator
       if (topNarrator) {
-        addText('TOP NARRATOR', '12px', 'normal', tanColor, '1px', 20, 260)
-        addText(topNarrator.name, '18px', 'bolder', 'white', '0px', 20, 282, 180)
-        addText(this.$elapsedPrettyExtended(topNarrator.time, true, false), '14px', 'lighter', 'white', '1px', 20, 302)
+        addText('TOP NARRATOR', '24px', 'normal', tanColor, '1px', 70, 520)
+        addText(topNarrator.name, '36px', 'bolder', 'white', '0px', 70, 564, 330)
+        addText(this.$elapsedPrettyExtended(topNarrator.time, true, false), '24px', 'lighter', 'white', '1px', 70, 599)
       }
 
       const topGenre = this.yearStats.topGenres[0]
       if (topGenre) {
-        addText('TOP GENRE', '12px', 'normal', tanColor, '1px', 215, 260)
-        addText(topGenre.genre, '18px', 'bolder', 'white', '0px', 215, 282, 180)
-        addText(this.$elapsedPrettyExtended(topGenre.time, true, false), '14px', 'lighter', 'white', '1px', 215, 302)
+        addText('TOP GENRE', '24px', 'normal', tanColor, '1px', 430, 520)
+        addText(topGenre.genre, '36px', 'bolder', 'white', '0px', 430, 564, 330)
+        addText(this.$elapsedPrettyExtended(topGenre.time, true, false), '24px', 'lighter', 'white', '1px', 430, 599)
       }
 
       const topAuthor = this.yearStats.topAuthors[0]
       if (topAuthor) {
-        addText('TOP AUTHOR', '12px', 'normal', tanColor, '1px', 20, 335)
-        addText(topAuthor.name, '18px', 'bolder', 'white', '0px', 20, 357, 180)
-        addText(this.$elapsedPrettyExtended(topAuthor.time, true, false), '14px', 'lighter', 'white', '1px', 20, 377)
+        addText('TOP AUTHOR', '24px', 'normal', tanColor, '1px', 70, 670)
+        addText(topAuthor.name, '36px', 'bolder', 'white', '0px', 70, 714, 330)
+        addText(this.$elapsedPrettyExtended(topAuthor.time, true, false), '24px', 'lighter', 'white', '1px', 70, 749)
       }
 
       this.dataUrl = canvas.toDataURL('png')
@@ -173,7 +188,7 @@ export default {
       let year = new Date().getFullYear()
       if (new Date().getMonth() < 11) year--
       this.year = year
-      this.yearStats = await this.$axios.$get(`/api/me/year/${year}/stats`).catch((err) => {
+      this.yearStats = await this.$axios.$get(`/api/me/stats/year/${year}`).catch((err) => {
         console.error('Failed to load stats for year', err)
         this.$toast.error('Failed to load year stats')
         return null
