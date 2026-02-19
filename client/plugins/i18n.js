@@ -6,6 +6,7 @@ const defaultCode = 'en-us'
 
 const languageCodeMap = {
   ar: { label: 'عربي', dateFnsLocale: 'ar' },
+  be: { label: 'Беларуская', dateFnsLocale: 'be' },
   bg: { label: 'Български', dateFnsLocale: 'bg' },
   bn: { label: 'বাংলা', dateFnsLocale: 'bn' },
   ca: { label: 'Català', dateFnsLocale: 'ca' },
@@ -48,6 +49,7 @@ const podcastSearchRegionMap = {
   au: { label: 'Australia' },
   br: { label: 'Brasil' },
   be: { label: 'België / Belgique / Belgien' },
+  by: { label: 'Беларусь' },
   cz: { label: 'Česko' },
   dk: { label: 'Danmark' },
   de: { label: 'Deutschland' },
