@@ -111,7 +111,7 @@ class Author extends Model {
    *
    * @param {string} name
    * @param {string} libraryId
-   * @returns {Promise<Author>}
+   * @returns {Promise<{ author: Author, created: boolean }>}
    */
   static async findOrCreateByNameAndLibrary(name, libraryId) {
     const author = await this.getByNameAndLibrary(name, libraryId)
