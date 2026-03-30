@@ -115,12 +115,13 @@ class Author extends Model {
    */
   static async findOrCreateByNameAndLibrary(name, libraryId) {
     const author = await this.getByNameAndLibrary(name, libraryId)
-    if (author) return author
-    return this.create({
+    if (author) return { author, created: false }
+    const newAuthor = await this.create({
       name,
       lastFirst: this.getLastFirst(name),
       libraryId
     })
+    return { author: newAuthor, created: true }
   }
 
   /**
