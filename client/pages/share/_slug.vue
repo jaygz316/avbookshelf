@@ -363,7 +363,9 @@ export default {
       console.log('Loaded media item share', this.mediaItemShare)
     }
 
-    const startTime = this.playbackSession.currentTime || 0
+    const startTime = this.$route.query.t && !isNaN(this.$route.query.t)
+      ? parseFloat(this.$route.query.t)
+      : (this.playbackSession.currentTime || 0)
     this.localAudioPlayer.set(null, this.audioTracks, false, startTime, false)
     this.localAudioPlayer.on('stateChange', this.playerStateChange.bind(this))
     this.localAudioPlayer.on('timeupdate', this.playerTimeUpdate.bind(this))

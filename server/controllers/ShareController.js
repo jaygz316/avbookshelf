@@ -20,7 +20,7 @@ const ShareManager = require('../managers/ShareManager')
  */
 
 class ShareController {
-  constructor() {}
+  constructor() { }
 
   /**
    * Public route
@@ -53,6 +53,10 @@ class ShareController {
       if (playbackSession) {
         if (mediaItemShare.id === playbackSession.mediaItemShareId) {
           Logger.debug(`[ShareController] Found share playback session ${req.cookies.share_session_id}`)
+          // If ?t was provided, override the cached currentTime
+          if (startTime > 0) {
+            playbackSession.currentTime = startTime
+          }
           mediaItemShare.playbackSession = playbackSession.toJSONForClient()
           return res.json(mediaItemShare)
         } else {
