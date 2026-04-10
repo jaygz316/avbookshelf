@@ -47,12 +47,18 @@ export default class LocalAudioPlayer extends EventEmitter {
     this.player.addEventListener('timeupdate', this.evtTimeupdate.bind(this))
 
     var mimeTypes = [
-      'audio/flac', 'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/aac',
-      'audio/x-ms-wma', 'audio/x-aiff', 'audio/webm',
-      // `audio/matroska` is the correct mimetype, but at least as of 2026-04-09,
-      // the detected mimetype for matroska files by the server is `audio/x-matroska`.
+      'audio/flac',
+      'audio/mpeg',
+      'audio/mp4',
+      'audio/ogg',
+      'audio/aac',
+      'audio/x-ms-wma',
+      'audio/x-aiff',
+      'audio/webm',
+      // `audio/matroska` is the correct mimetype, but the server still uses `audio/x-matroska`
       // ref: https://www.iana.org/assignments/media-types/media-types.xhtml
-      'audio/matroska', 'audio/x-matroska'
+      'audio/matroska',
+      'audio/x-matroska'
     ]
     var mimeTypeCanPlayMap = {}
     mimeTypes.forEach((mt) => {
