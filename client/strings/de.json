@@ -116,7 +116,7 @@
   "ButtonViewAll": "Alles anzeigen",
   "ButtonYes": "Ja",
   "ErrorUploadFetchMetadataAPI": "Fehler beim Abrufen der Metadaten",
-  "ErrorUploadFetchMetadataNoResults": "Metadaten konnten nicht abgerufen werden. Versuche, den Titel und/oder den Autor zu aktualisieren.",
+  "ErrorUploadFetchMetadataNoResults": "Metadaten konnten nicht abgerufen werden - versuche den Titel und/oder den Autor zu aktualisieren",
   "ErrorUploadLacksTitle": "Es muss ein Titel eingegeben werden",
   "HeaderAccount": "Konto",
   "HeaderAddCustomMetadataProvider": "Benutzerdefinierten Metadatenanbieter hinzufügen",
