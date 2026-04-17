@@ -7,7 +7,7 @@ const SocketAuthority = require('../SocketAuthority')
 const Database = require('../Database')
 
 const zipHelpers = require('../utils/zipHelpers')
-const { reqSupportsWebp } = require('../utils/index')
+const { reqSupportsWebp, clampPositiveInt } = require('../utils/index')
 const { ScanResult, AudioMimeType } = require('../utils/constants')
 const { getAudioMimeTypeFromExtname, encodeUriPath } = require('../utils/fileUtils')
 const LibraryItemScanner = require('../scanner/LibraryItemScanner')
@@ -398,8 +398,8 @@ class LibraryItemController {
 
     const options = {
       format: format || (reqSupportsWebp(req) ? 'webp' : 'jpeg'),
-      height: height ? parseInt(height) : null,
-      width: width ? parseInt(width) : null
+      height: clampPositiveInt(height ? parseInt(height) : null, 4096),
+      width: clampPositiveInt(width ? parseInt(width) : null, 4096)
     }
     return CacheManager.handleCoverCache(res, libraryItemId, options)
   }
