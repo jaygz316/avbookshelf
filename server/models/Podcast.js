@@ -89,6 +89,9 @@ class Podcast extends Model {
       }
     })
 
+    const rawDescription = typeof payload.metadata.description === 'string' ? payload.metadata.description : null
+    const description = rawDescription ? htmlSanitizer.sanitize(rawDescription) : null
+
     return this.create(
       {
         title,
@@ -97,7 +100,7 @@ class Podcast extends Model {
         releaseDate: typeof payload.metadata.releaseDate === 'string' ? payload.metadata.releaseDate : null,
         feedURL: typeof payload.metadata.feedUrl === 'string' ? payload.metadata.feedUrl : null,
         imageURL: typeof payload.metadata.imageUrl === 'string' ? payload.metadata.imageUrl : null,
-        description: typeof payload.metadata.description === 'string' ? payload.metadata.description : null,
+        description,
         itunesPageURL: typeof payload.metadata.itunesPageUrl === 'string' ? payload.metadata.itunesPageUrl : null,
         itunesId: typeof payload.metadata.itunesId === 'string' ? payload.metadata.itunesId : null,
         itunesArtistId: typeof payload.metadata.itunesArtistId === 'string' ? payload.metadata.itunesArtistId : null,
