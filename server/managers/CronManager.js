@@ -167,7 +167,7 @@ class CronManager {
         task
       })
     } catch (error) {
-      Logger.error(`[PodcastManager] Failed to schedule podcast cron ${this.serverSettings.podcastEpisodeSchedule}`, error)
+      Logger.error(`[PodcastManager] Failed to schedule podcast cron ${expression}`, error)
     }
   }
 
