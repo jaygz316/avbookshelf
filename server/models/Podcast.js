@@ -78,6 +78,7 @@ class Podcast extends Model {
    */
   static async createFromRequest(payload, transaction) {
     const title = typeof payload.metadata.title === 'string' ? payload.metadata.title : null
+    // cron expression validated in controller
     const autoDownloadSchedule = typeof payload.autoDownloadSchedule === 'string' ? payload.autoDownloadSchedule : null
     const genres = Array.isArray(payload.metadata.genres) && payload.metadata.genres.every((g) => typeof g === 'string' && g.length) ? payload.metadata.genres : []
     const tags = Array.isArray(payload.tags) && payload.tags.every((t) => typeof t === 'string' && t.length) ? payload.tags : []
@@ -273,6 +274,7 @@ class Podcast extends Model {
       hasUpdates = true
     }
     if (typeof payload.autoDownloadSchedule === 'string' && payload.autoDownloadSchedule !== this.autoDownloadSchedule) {
+      // cron expression validated in controller
       this.autoDownloadSchedule = payload.autoDownloadSchedule
       hasUpdates = true
     }
