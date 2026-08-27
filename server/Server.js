@@ -158,6 +158,12 @@ class Server {
     }
 
     await Database.init(false)
+
+    if (typeof global.RouterBasePath !== 'string') {
+      throw new Error('[Server] RouterBasePath must be a string before serving requests')
+    }
+    Logger.info(`[Server] Serving from base path "${global.RouterBasePath || '/'}"`)
+
     // Create or set JWT secret in token manager
     await this.auth.tokenManager.initTokenSecret()
 
@@ -409,7 +415,18 @@ class Server {
       const nextApp = next({ dev: Logger.isDev, dir: ReactClientPath })
       const handle = nextApp.getRequestHandler()
       await nextApp.prepare()
-      router.all('*', (req, res) => handle(req, res))
+      router.all('*', (req, res) => {
+        // Next is configured with the same base path as this router, but Express strips the mount
+        // prefix from req.url, so put it back. The bare mount path is passed through without a
+        // trailing slash, which Next would otherwise redirect away from on every request.
+        if (req.baseUrl) {
+          const queryIndex = req.url.indexOf('?')
+          const pathname = queryIndex === -1 ? req.url : req.url.slice(0, queryIndex)
+          const search = queryIndex === -1 ? '' : req.url.slice(queryIndex)
+          req.url = `${req.baseUrl}${pathname === '/' ? '' : pathname}${search}`
+        }
+        handle(req, res)
+      })
     }
 
     const unixSocketPrefix = 'unix/'
