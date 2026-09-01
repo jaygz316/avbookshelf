@@ -45,6 +45,9 @@ class ServerSettings {
     // Podcasts
     this.podcastEpisodeSchedule = '0 * * * *' // Every hour
 
+    // yt-dlp
+    this.ytdlpDownloadSpeedLimit = null // e.g. '2M', '500K', null = unlimited
+
     // Sorting
     this.sortingIgnorePrefix = false
     this.sortingPrefixes = ['the', 'a']
@@ -148,6 +151,8 @@ class ServerSettings {
     this.authOpenIDAdvancedPermsClaim = settings.authOpenIDAdvancedPermsClaim || ''
     this.authOpenIDSubfolderForRedirectURLs = settings.authOpenIDSubfolderForRedirectURLs
 
+    this.ytdlpDownloadSpeedLimit = settings.ytdlpDownloadSpeedLimit || null
+
     if (!Array.isArray(this.authActiveAuthMethods)) {
       this.authActiveAuthMethods = ['local']
     }
@@ -228,6 +233,7 @@ class ServerSettings {
       homeBookshelfView: this.homeBookshelfView,
       bookshelfView: this.bookshelfView,
       podcastEpisodeSchedule: this.podcastEpisodeSchedule,
+      ytdlpDownloadSpeedLimit: this.ytdlpDownloadSpeedLimit,
       sortingIgnorePrefix: this.sortingIgnorePrefix,
       sortingPrefixes: [...this.sortingPrefixes],
       chromecastEnabled: this.chromecastEnabled,

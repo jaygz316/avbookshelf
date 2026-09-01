@@ -50,57 +50,45 @@ class VideoManager {
   }
 
   /**
-   * Fetch accurate publish dates for individual videos via yt-dlp --dump-json.
-   * Runs concurrency-limited per-video lookups for video IDs that are still missing dates
-   * after the Atom RSS feed enrichment (which is capped at 15 entries by YouTube).
+   * Fetch accurate publish dates for multiple videos via a single yt-dlp --batch-file invocation.
+   * Writing all URLs to a temp file and running one process is drastically faster than
+   * spawning one process per video (the old approach).
    *
    * @param {string[]} videoIds - YouTube video IDs to fetch dates for
-   * @param {number} [concurrency=3] - Max concurrent yt-dlp processes
    * @returns {Promise<Record<string, { publishedAt: number, pubDate: string }>>}
    */
-  async fetchVideoDatesViaDlp(videoIds, concurrency = 3) {
+  async fetchVideoDatesViaDlp(videoIds) {
     if (!this.isAvailable || !videoIds.length) return {}
 
-    const dateMap = {}
-    // Process in batches to limit concurrent yt-dlp processes
-    for (let i = 0; i < videoIds.length; i += concurrency) {
-      const batch = videoIds.slice(i, i + concurrency)
-      const results = await Promise.allSettled(
-        batch.map(async (videoId) => {
-          const url = `https://www.youtube.com/watch?v=${videoId}`
-          try {
-            const args = ['--dump-json', '--no-download', '--no-playlist', url]
-            const entries = await this.execYtDlp(args)
-            const info = entries[0]
-            if (!info) return
+    const fs = require('fs')
+    const os = require('os')
+    const tmpFile = require('path').join(os.tmpdir(), `abs-yt-dates-${Date.now()}-${process.pid}.txt`)
 
-            const rawDate =
-              info.release_date ||
-              info.upload_date ||
-              info.published_at ||
-              info.publish_date
-            const rawTimestamp =
-              info.release_timestamp ||
-              info.timestamp ||
-              info.published_timestamp
+    try {
+      // Write one URL per line for yt-dlp --batch-file
+      const urls = videoIds.map((id) => `https://www.youtube.com/watch?v=${id}`)
+      fs.writeFileSync(tmpFile, urls.join('\n'), 'utf8')
 
-            const { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
-            if (publishedAt) {
-              dateMap[videoId] = { publishedAt, pubDate }
-            }
-          } catch (err) {
-            Logger.debug(`[VideoManager] Failed to fetch date for video ${videoId}: ${err.message}`)
-          }
-        })
-      )
-      // Log any unexpected rejections at debug level
-      for (const result of results) {
-        if (result.status === 'rejected') {
-          Logger.debug(`[VideoManager] fetchVideoDatesViaDlp batch item rejected: ${result.reason?.message || result.reason}`)
+      const args = ['--dump-json', '--no-download', '--no-playlist', '-a', tmpFile]
+      const entries = await this.execYtDlp(args)
+
+      const dateMap = {}
+      for (const info of entries) {
+        if (!info?.id) continue
+        const rawDate = info.release_date || info.upload_date || info.published_at || info.publish_date
+        const rawTimestamp = info.release_timestamp || info.timestamp || info.published_timestamp
+        const { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
+        if (publishedAt) {
+          dateMap[info.id] = { publishedAt, pubDate }
         }
       }
+      return dateMap
+    } catch (err) {
+      Logger.debug(`[VideoManager] fetchVideoDatesViaDlp batch failed: ${err.message}`)
+      return {}
+    } finally {
+      try { require('fs').unlinkSync(tmpFile) } catch { /* ignore */ }
     }
-    return dateMap
   }
 
   /**
@@ -203,6 +191,13 @@ class VideoManager {
       '--newline',
       url
     ]
+
+    // Apply configured download speed limit to avoid IP bans
+    const speedLimit = global.ServerSettings?.ytdlpDownloadSpeedLimit
+    if (speedLimit && typeof speedLimit === 'string' && /^\d+(\.\d+)?[KMGkmg]?$/i.test(speedLimit)) {
+      // Insert before url arg: args = [...optionArgs, url] so splice at args.length-1
+      args.splice(args.length - 1, 0, '--limit-rate', speedLimit)
+    }
 
     return new Promise((resolve, reject) => {
       const proc = childProcess.spawn(this.ytDlpPath, args)
@@ -561,6 +556,10 @@ class VideoManager {
         ? entry.thumbnails[entry.thumbnails.length - 1].url
         : (entry.thumbnail || null)
       const season = entry.season_number != null ? String(entry.season_number) : null
+      // Use playlist_index as fallback episode number when no structured episode data is present
+      const episodeFromPlaylist = (!season && entry.season_number == null && entry.episode_number == null && entry.playlist_index != null)
+        ? String(entry.playlist_index)
+        : null
       const episode = entry.episode_number != null ? String(entry.episode_number) : null
       const extracted = (!season && !episode) ? extractEpisodeNumbers(entry.title || '') : {}
 
@@ -586,7 +585,7 @@ class VideoManager {
         pubDate,
         episodeType: 'full',
         season: season || extracted.season || '',
-        episode: episode || extracted.episode || '',
+        episode: episode || extracted.episode || episodeFromPlaylist || '',
         author,
         duration: entry.duration ? String(entry.duration) : '',
         durationSeconds: entry.duration ? Number(entry.duration) : null,
