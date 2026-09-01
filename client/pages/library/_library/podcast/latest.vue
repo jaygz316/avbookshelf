@@ -237,9 +237,7 @@ export default {
             libraryItemId: episode.libraryItemId,
             libraryId: episode.libraryId,
             episodeId: episode.id,
-            title: episode.title,
-            subtitle: episode.podcast.metadata.title,
-            caption: episode.publishedAt ? this.$getString('LabelPublishedDate', [this.$formatDate(episode.publishedAt, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
+            caption: (episode.publishedAt || episode.pubDate) ? this.$getString('LabelPublishedDate', [this.$formatDate(episode.publishedAt || episode.pubDate, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
             duration: episode.duration || null,
             coverPath: episode.podcast.coverPath || null
           })
@@ -274,9 +272,7 @@ export default {
           libraryItemId: episode.libraryItemId,
           libraryId: episode.libraryId,
           episodeId: episode.id,
-          title: episode.title,
-          subtitle: episode.podcast.metadata.title,
-          caption: episode.publishedAt ? this.$getString('LabelPublishedDate', [this.$formatDate(episode.publishedAt, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
+          caption: (episode.publishedAt || episode.pubDate) ? this.$getString('LabelPublishedDate', [this.$formatDate(episode.publishedAt || episode.pubDate, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
           duration: episode.duration || null,
           coverPath: episode.podcast.coverPath || null
         }

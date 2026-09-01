@@ -297,13 +297,20 @@ export default {
         .filter((ep) => ep.enclosure?.url)
         .map((_ep) => {
           let pubAt = _ep.publishedAt
-          if (!pubAt && _ep.pubDate) {
-            const d = new Date(_ep.pubDate)
+          let pubD = _ep.pubDate
+          if (!pubAt && pubD) {
+            const d = new Date(pubD)
             if (!isNaN(d.valueOf())) pubAt = d.valueOf()
+          }
+          if (pubAt && !pubD) {
+            try {
+              pubD = new Date(pubAt).toISOString().slice(0, 10)
+            } catch (_) {}
           }
           return {
             ..._ep,
             publishedAt: pubAt,
+            pubDate: pubD,
             cleanUrl: this.getCleanEpisodeUrl(_ep.enclosure.url),
             isDownloading: this.getIsEpisodeDownloadingOrQueued(_ep),
             isDownloaded: this.getIsEpisodeDownloaded(_ep)

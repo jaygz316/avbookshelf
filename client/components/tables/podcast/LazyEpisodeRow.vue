@@ -19,11 +19,11 @@
             <strong className="font-bold">{{ $strings.LabelFilename }}</strong
             >: {{ filename }}
           </p>
-          <div v-else class="w-full inline-flex justify-between max-w-xl">
             <p v-if="episode?.season" class="text-sm text-gray-300">{{ $getString('LabelSeasonNumber', [episode.season]) }}</p>
             <p v-if="episode?.episode" class="text-sm text-gray-300">{{ $getString('LabelEpisodeNumber', [episode.episode]) }}</p>
             <p v-if="episode?.chapters?.length" class="text-sm text-gray-300">{{ $getString('LabelChapterCount', [episode.chapters.length]) }}</p>
             <p v-if="publishedAt" class="text-sm text-gray-300">{{ $getString('LabelPublishedDate', [$formatDate(publishedAt, dateFormat)]) }}</p>
+            <p v-else-if="episode?.pubDate" class="text-sm text-gray-300">{{ $getString('LabelPublishedDate', [episode.pubDate]) }}</p>
           </div>
         </div>
 
@@ -120,7 +120,12 @@ export default {
       return this.episode?.episodeType || ''
     },
     publishedAt() {
-      return this.episode?.publishedAt
+      if (this.episode?.publishedAt) return this.episode.publishedAt
+      if (this.episode?.pubDate) {
+        const d = new Date(this.episode.pubDate)
+        if (!isNaN(d.valueOf())) return d.valueOf()
+      }
+      return null
     },
     dateFormat() {
       return this.store.getters['getServerSetting']('dateFormat')

@@ -350,6 +350,48 @@ class PodcastEpisode extends Model {
 
     const isVideo = this.isVideo
 
+    let publishedAt = this.publishedAt?.valueOf?.() || (this.publishedAt ? new Date(this.publishedAt).getTime() : null)
+    let pubDate = this.pubDate || null
+
+    if (!publishedAt && pubDate) {
+      const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
+      const parsed = parseDateToTimestampAndString(pubDate)
+      if (parsed.publishedAt) publishedAt = parsed.publishedAt
+    }
+
+    if (!publishedAt && this.videoFile?.metadata?.filename) {
+      const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
+      const parsed = parseDateToTimestampAndString(this.videoFile.metadata.filename)
+      if (parsed.publishedAt) {
+        publishedAt = parsed.publishedAt
+        pubDate = pubDate || parsed.pubDate
+      }
+    }
+
+    if (!publishedAt && this.audioFile?.metadata?.filename) {
+      const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
+      const parsed = parseDateToTimestampAndString(this.audioFile.metadata.filename)
+      if (parsed.publishedAt) {
+        publishedAt = parsed.publishedAt
+        pubDate = pubDate || parsed.pubDate
+      }
+    }
+
+    if (!publishedAt && this.title) {
+      const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
+      const parsed = parseDateToTimestampAndString(this.title)
+      if (parsed.publishedAt) {
+        publishedAt = parsed.publishedAt
+        pubDate = pubDate || parsed.pubDate
+      }
+    }
+
+    if (publishedAt && !pubDate) {
+      const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
+      const parsed = parseDateToTimestampAndString(null, publishedAt)
+      if (parsed.pubDate) pubDate = parsed.pubDate
+    }
+
     return {
       libraryItemId: libraryItemId,
       podcastId: this.podcastId,
@@ -364,14 +406,14 @@ class PodcastEpisode extends Model {
       description: this.description,
       enclosure,
       guid: this.extraData?.guid || null,
-      pubDate: this.pubDate,
+      pubDate,
       chapters: this.chapters ? structuredClone(this.chapters) : [],
       audioFile: this.audioFile ? structuredClone(this.audioFile) : null,
       videoFile: this.videoFile ? structuredClone(this.videoFile) : null,
       episodeMediaType: isVideo ? 'video' : 'audio',
       isVideo,
       thumbnail: this.thumbnail || null,
-      publishedAt: this.publishedAt?.valueOf?.() || (this.publishedAt ? new Date(this.publishedAt).getTime() : null),
+      publishedAt,
       addedAt: this.createdAt?.valueOf?.() || (this.createdAt ? new Date(this.createdAt).getTime() : Date.now()),
       updatedAt: this.updatedAt?.valueOf?.() || (this.updatedAt ? new Date(this.updatedAt).getTime() : Date.now())
     }
