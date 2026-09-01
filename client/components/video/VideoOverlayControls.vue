@@ -6,8 +6,7 @@
     @mouseleave="onMouseLeave"
     @wheel="onWheel"
   >
-    <!-- TOP BAR OVERLAY: Gradient with Title, Badges, and Action Buttons -->
-    <div class="w-full flex items-center justify-between px-4 pt-3 pb-8 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-auto">
+        <div class="w-full flex items-center justify-between px-4 pt-3 pb-8 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-auto">
       <div class="flex items-center gap-2 min-w-0 pr-4">
         <div class="min-w-0">
           <p class="text-white text-sm sm:text-base font-semibold truncate drop-shadow-md">
@@ -22,10 +21,8 @@
         </span>
       </div>
 
-      <!-- Top Action Buttons -->
-      <div class="flex items-center gap-1 sm:gap-1.5 shrink-0">
-        <!-- Aspect Ratio / Fit Cycle -->
-        <ui-tooltip direction="bottom" :text="`Fit: ${videoFitLabel}`">
+            <div class="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                <ui-tooltip direction="bottom" :text="`Fit: ${videoFitLabel}`">
           <button
             :aria-label="`Fit: ${videoFitLabel}`"
             class="overlay-btn"
@@ -35,8 +32,7 @@
           </button>
         </ui-tooltip>
 
-        <!-- Native Picture-in-Picture -->
-        <ui-tooltip v-if="isPiPSupported" direction="bottom" :text="isPiPActive ? 'Exit Picture in Picture' : 'Picture in Picture'">
+                <ui-tooltip v-if="isPiPSupported" direction="bottom" :text="isPiPActive ? 'Exit Picture in Picture' : 'Picture in Picture'">
           <button
             :aria-label="isPiPActive ? 'Exit Picture in Picture' : 'Picture in Picture'"
             class="overlay-btn"
@@ -47,8 +43,7 @@
           </button>
         </ui-tooltip>
 
-        <!-- Detach to In-App Floating Mini-Player -->
-        <ui-tooltip direction="bottom" text="Detach Mini Player">
+                <ui-tooltip direction="bottom" text="Detach Mini Player">
           <button
             aria-label="Detach Mini Player"
             class="overlay-btn"
@@ -58,8 +53,7 @@
           </button>
         </ui-tooltip>
 
-        <!-- Size Mode Cycle (Theater / Expanded / Compact) -->
-        <ui-tooltip direction="bottom" :text="playerSizeLabel">
+                <ui-tooltip direction="bottom" :text="playerSizeLabel">
           <button
             :aria-label="playerSizeLabel"
             class="overlay-btn"
@@ -69,8 +63,7 @@
           </button>
         </ui-tooltip>
 
-        <!-- Fullscreen Toggle -->
-        <ui-tooltip direction="bottom" :text="isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'">
+                <ui-tooltip direction="bottom" :text="isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'">
           <button
             :aria-label="isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'"
             class="overlay-btn"
@@ -82,28 +75,23 @@
       </div>
     </div>
 
-    <!-- CENTER AREA: Click Zones & Animated Gesture Indicators -->
-    <div class="flex-1 w-full relative flex items-center justify-center pointer-events-auto" @click="handleCenterSingleClick">
-      <!-- Left 1/3 zone: Double-click to seek backward -->
-      <div
+        <div class="flex-1 w-full relative flex items-center justify-center pointer-events-auto" @click="handleCenterSingleClick">
+            <div
         class="absolute left-0 top-0 w-1/4 sm:w-1/3 h-full cursor-pointer z-10"
         @dblclick.stop="triggerDoubleSeekBackward"
       />
 
-      <!-- Right 1/3 zone: Double-click to seek forward -->
-      <div
+            <div
         class="absolute right-0 top-0 w-1/4 sm:w-1/3 h-full cursor-pointer z-10"
         @dblclick.stop="triggerDoubleSeekForward"
       />
 
-      <!-- Center double-click: Toggle Fullscreen -->
-      <div
+            <div
         class="absolute left-1/4 sm:left-1/3 right-1/4 sm:right-1/3 top-0 h-full cursor-pointer z-10"
         @dblclick.stop="$emit('toggleFullscreen')"
       />
 
-      <!-- Animated Play/Pause Feedback Pulse -->
-      <transition name="scale-fade">
+            <transition name="scale-fade">
         <div
           v-if="showPlayIndicator"
           class="pointer-events-none p-4 rounded-full bg-black/60 backdrop-blur-xs border border-white/15 text-white shadow-2xl flex items-center justify-center z-20"
@@ -112,8 +100,7 @@
         </div>
       </transition>
 
-      <!-- Animated Seek Backward Feedback -->
-      <transition name="scale-fade">
+            <transition name="scale-fade">
         <div
           v-if="showSeekBackIndicator"
           class="absolute left-8 sm:left-16 pointer-events-none p-3.5 rounded-full bg-black/60 backdrop-blur-xs border border-white/15 text-white shadow-2xl flex items-center justify-center gap-1 z-20"
@@ -123,8 +110,7 @@
         </div>
       </transition>
 
-      <!-- Animated Seek Forward Feedback -->
-      <transition name="scale-fade">
+            <transition name="scale-fade">
         <div
           v-if="showSeekFwdIndicator"
           class="absolute right-8 sm:right-16 pointer-events-none p-3.5 rounded-full bg-black/60 backdrop-blur-xs border border-white/15 text-white shadow-2xl flex items-center justify-center gap-1 z-20"
@@ -134,8 +120,7 @@
         </div>
       </transition>
 
-      <!-- Volume OSD Overlay (shown on scroll wheel) -->
-      <transition name="scale-fade">
+            <transition name="scale-fade">
         <div
           v-if="showVolumeOsd"
           class="absolute top-6 pointer-events-none px-4 py-2 rounded-full bg-black/70 backdrop-blur-xs border border-white/15 text-white shadow-2xl flex items-center gap-2 z-20"
@@ -149,31 +134,24 @@
       </transition>
     </div>
 
-    <!-- BOTTOM BAR OVERLAY: Scrubber + Video Controls -->
-    <div class="w-full px-4 pb-3 pt-8 bg-gradient-to-t from-black/85 via-black/50 to-transparent pointer-events-auto">
-      <!-- Inline Video Scrubber Track with Chapter Marks & Hover Preview -->
-      <div class="w-full relative py-2 group/scrubber cursor-pointer" @mousemove="onScrubberHover" @mouseleave="onScrubberLeave" @click.stop="onScrubberClick">
+        <div class="w-full px-4 pb-3 pt-8 bg-gradient-to-t from-black/85 via-black/50 to-transparent pointer-events-auto">
+            <div class="w-full relative py-2 group/scrubber cursor-pointer" @mousemove="onScrubberHover" @mouseleave="onScrubberLeave" @click.stop="onScrubberClick">
         <div ref="scrubberTrack" class="w-full h-1 sm:h-1.5 group-hover/scrubber:h-2.5 bg-white/25 relative rounded-full transition-all duration-150 overflow-visible">
-          <!-- Buffer Progress Track -->
-          <div class="h-full bg-white/40 absolute top-0 left-0 rounded-full pointer-events-none transition-all duration-100" :style="{ width: bufferPercent + '%' }" />
+                    <div class="h-full bg-white/40 absolute top-0 left-0 rounded-full pointer-events-none transition-all duration-100" :style="{ width: bufferPercent + '%' }" />
 
-          <!-- Playback Progress Track -->
-          <div class="h-full bg-accent absolute top-0 left-0 rounded-full pointer-events-none transition-all duration-75" :style="{ width: progressPercent + '%' }" />
+                    <div class="h-full bg-accent absolute top-0 left-0 rounded-full pointer-events-none transition-all duration-75" :style="{ width: progressPercent + '%' }" />
 
-          <!-- Chapter Boundary Ticks -->
-          <template v-for="(tick, idx) in chapterTicks">
+                    <template v-for="(tick, idx) in chapterTicks">
             <div :key="idx" :style="{ left: tick.left + '%' }" class="absolute top-0 w-0.5 bg-white/70 h-full pointer-events-none" />
           </template>
 
-          <!-- Scrubber Thumb Indicator -->
-          <div
+                    <div
             class="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white border-2 border-accent rounded-full opacity-0 group-hover/scrubber:opacity-100 shadow-md transition-opacity duration-150 pointer-events-none"
             :style="{ left: `calc(${progressPercent}% - 7px)` }"
           />
         </div>
 
-        <!-- Scrubber Hover Timestamp Tooltip -->
-        <div
+                <div
           ref="scrubberTooltip"
           class="absolute -top-7 pointer-events-none bg-black/90 text-white text-xs font-mono px-2 py-0.5 rounded shadow-lg border border-white/20 whitespace-nowrap transition-opacity duration-150"
           :class="isHoveringScrubber ? 'opacity-100' : 'opacity-0'"
@@ -183,12 +161,9 @@
         </div>
       </div>
 
-      <!-- Controls Row -->
-      <div class="flex items-center justify-between mt-1 text-white">
-        <!-- Left: Play/Pause, Jump, Chapter Jump, Volume, Timestamp -->
-        <div class="flex items-center gap-1.5 sm:gap-3">
-          <!-- Play / Pause Button -->
-          <button
+            <div class="flex items-center justify-between mt-1 text-white">
+                <div class="flex items-center gap-1.5 sm:gap-3">
+                    <button
             :aria-label="paused ? 'Play' : 'Pause'"
             class="p-2 sm:p-2.5 rounded-full bg-accent text-primary hover:scale-105 active:scale-95 transition-transform shadow-md flex items-center justify-center"
             @click.stop="$emit('playPause')"
@@ -196,36 +171,31 @@
             <span class="material-symbols fill text-xl sm:text-2xl">{{ paused ? 'play_arrow' : 'pause' }}</span>
           </button>
 
-          <!-- Prev Chapter / Restart -->
-          <ui-tooltip direction="top" text="Previous Chapter">
+                    <ui-tooltip direction="top" text="Previous Chapter">
             <button class="overlay-btn" @click.stop="$emit('prevChapter')">
               <span class="material-symbols text-lg sm:text-xl">first_page</span>
             </button>
           </ui-tooltip>
 
-          <!-- Jump Backward -->
-          <ui-tooltip direction="top" text="Jump Backward (-10s)">
+                    <ui-tooltip direction="top" text="Jump Backward (-10s)">
             <button class="overlay-btn" @click.stop="$emit('jumpBackward')">
               <span class="material-symbols text-lg sm:text-xl">replay</span>
             </button>
           </ui-tooltip>
 
-          <!-- Jump Forward -->
-          <ui-tooltip direction="top" text="Jump Forward (+10s)">
+                    <ui-tooltip direction="top" text="Jump Forward (+10s)">
             <button class="overlay-btn" @click.stop="$emit('jumpForward')">
               <span class="material-symbols text-lg sm:text-xl">forward_media</span>
             </button>
           </ui-tooltip>
 
-          <!-- Next Chapter -->
-          <ui-tooltip direction="top" text="Next Chapter">
+                    <ui-tooltip direction="top" text="Next Chapter">
             <button class="overlay-btn" :disabled="!hasNextChapter" :class="{ 'opacity-40 cursor-not-allowed': !hasNextChapter }" @click.stop="$emit('nextChapter')">
               <span class="material-symbols text-lg sm:text-xl">last_page</span>
             </button>
           </ui-tooltip>
 
-          <!-- Expandable Volume Slider -->
-          <div class="flex items-center group/vol relative">
+                    <div class="flex items-center group/vol relative">
             <ui-tooltip direction="top" :text="volume <= 0 ? 'Unmute' : 'Mute'">
               <button class="overlay-btn" @click.stop="$emit('toggleMute')">
                 <span class="material-symbols text-lg sm:text-xl">{{ volumeIcon }}</span>
@@ -244,8 +214,7 @@
             </div>
           </div>
 
-          <!-- Time Display -->
-          <div class="hidden sm:flex items-center text-xs font-mono text-gray-200 pl-1">
+                    <div class="hidden sm:flex items-center text-xs font-mono text-gray-200 pl-1">
             <span>{{ currentTimestamp }}</span>
             <span class="mx-1 text-gray-400">/</span>
             <span>{{ durationTimestamp }}</span>
@@ -255,10 +224,8 @@
           </div>
         </div>
 
-        <!-- Right: Speed, Chapters, Settings -->
-        <div class="flex items-center gap-1.5 sm:gap-2">
-          <!-- Playback Speed Popover / Button -->
-          <div class="relative">
+                <div class="flex items-center gap-1.5 sm:gap-2">
+                    <div class="relative">
             <button
               aria-label="Playback Speed"
               class="px-2 sm:px-2.5 py-1 text-xs font-mono font-semibold rounded-full bg-white/15 hover:bg-white/25 border border-white/15 text-white transition active:scale-95 flex items-center gap-0.5"
@@ -267,8 +234,7 @@
               <span>{{ playbackRateDisplay }}</span>
             </button>
 
-            <!-- Speed Menu Dropdown -->
-            <div
+                        <div
               v-if="showSpeedMenu"
               class="absolute bottom-full right-0 mb-2 p-1 bg-primary/95 backdrop-blur-md rounded-lg shadow-xl border border-gray-700 flex flex-col gap-0.5 z-30 min-w-20"
             >
@@ -284,8 +250,7 @@
             </div>
           </div>
 
-          <!-- Chapters Modal Trigger -->
-          <ui-tooltip v-if="chapters.length" direction="top" text="Chapters">
+                    <ui-tooltip v-if="chapters.length" direction="top" text="Chapters">
             <button class="overlay-btn" @click.stop="$emit('showChapters')">
               <span class="material-symbols text-lg sm:text-xl">format_list_bulleted</span>
             </button>

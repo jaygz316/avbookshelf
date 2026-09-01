@@ -3,6 +3,7 @@ const VideoManager = require('./VideoManager')
 const VideoScanner = require('./VideoScanner')
 const VideoEpisodeMatcher = require('./VideoEpisodeMatcher')
 const VideoStreamHandler = require('./VideoStreamHandler')
+const ytDlpMetadataMapper = require('./ytDlpMetadataMapper')
 
 const videoManager = new VideoManager()
 const videoScanner = new VideoScanner()
@@ -14,8 +15,8 @@ module.exports = {
   VideoScanner,
   VideoEpisodeMatcher,
   VideoStreamHandler,
+  ytDlpMetadataMapper,
   videoManager,
   videoScanner,
-  videoEpisodeMatcher: VideoEpisodeMatcher,
   videoStreamHandler
 }

@@ -125,19 +125,6 @@ function isNullOrNaN(val) {
   return val === null || isNaN(val)
 }
 
-/* Example chapter object
- * {
-      "id": 71,
-      "time_base": "1/1000",
-      "start": 80792671,
-      "start_time": "80792.671000",
-      "end": 81084755,
-      "end_time": "81084.755000",
-      "tags": {
-          "title": "072"
-      }
- * }
- */
 function parseChapters(_chapters) {
   if (!_chapters) return []
 
@@ -209,7 +196,6 @@ function parseTags(format, verbose) {
     file_tag_musicbrainz_albumartistid: tryGrabTags(format, 'MusicBrainz Album Artist Id', 'musicbrainz_albumartistid'),
     file_tag_musicbrainz_artistid: tryGrabTags(format, 'MusicBrainz Artist Id', 'musicbrainz_artistid'),
 
-    // Not sure if these are actually used yet or not
     file_tag_creation_time: tryGrabTags(format, 'creation_time'),
     file_tag_wwwaudiofile: tryGrabTags(format, 'wwwaudiofile', 'woaf', 'waf'),
     file_tag_contentgroup: tryGrabTags(format, 'contentgroup', 'tit1', 'tt1'),

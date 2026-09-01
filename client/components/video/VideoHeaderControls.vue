@@ -1,7 +1,6 @@
 <template>
   <div class="flex items-center">
-    <!-- Detach to floating miniplayer -->
-    <ui-tooltip direction="top" text="Detach Mini Player">
+        <ui-tooltip direction="top" text="Detach Mini Player">
       <button
         aria-label="Detach Mini Player"
         class="material-symbols sm:px-2 py-1 lg:p-4 cursor-pointer text-xl sm:text-2xl text-gray-300 hover:text-white"
@@ -11,8 +10,7 @@
       </button>
     </ui-tooltip>
 
-    <!-- PiP toggle -->
-    <ui-tooltip v-if="isPiPSupported" direction="top" :text="isPiPActive ? 'Exit Picture in Picture (P)' : 'Picture in Picture (P)'">
+        <ui-tooltip v-if="isPiPSupported" direction="top" :text="isPiPActive ? 'Exit Picture in Picture (P)' : 'Picture in Picture (P)'">
       <button
         :aria-label="isPiPActive ? 'Exit Picture in Picture' : 'Picture in Picture'"
         class="material-symbols sm:px-2 py-1 lg:p-4 cursor-pointer text-xl sm:text-2xl text-gray-300 hover:text-white"
@@ -23,8 +21,7 @@
       </button>
     </ui-tooltip>
 
-    <!-- Player Size Cycle Button -->
-    <ui-tooltip direction="top" :text="playerSizeLabel">
+        <ui-tooltip direction="top" :text="playerSizeLabel">
       <button
         :aria-label="playerSizeLabel"
         class="material-symbols sm:px-2 py-1 lg:p-4 cursor-pointer text-xl sm:text-2xl text-gray-300 hover:text-white"
@@ -34,8 +31,7 @@
       </button>
     </ui-tooltip>
 
-    <!-- Fullscreen Toggle -->
-    <ui-tooltip direction="top" :text="isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'">
+        <ui-tooltip direction="top" :text="isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'">
       <button
         :aria-label="isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'"
         class="material-symbols sm:px-2 py-1 lg:p-4 cursor-pointer text-xl sm:text-2xl text-gray-300 hover:text-white"

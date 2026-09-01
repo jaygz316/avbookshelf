@@ -66,7 +66,6 @@ export default class LocalAudioPlayer extends EventEmitter {
       mimeTypeCanPlayMap[mt] = canPlay
       if (canPlay) this.playableMimeTypes.push(mt)
     })
-    console.log(`[LocalPlayer] Supported mime types`, mimeTypeCanPlayMap, this.playableMimeTypes)
   }
 
   evtPlay() {
@@ -81,13 +80,11 @@ export default class LocalAudioPlayer extends EventEmitter {
   }
   evtEnded() {
     if (this.currentTrackIndex < this.audioTracks.length - 1) {
-      console.log(`[LocalPlayer] Track ended - loading next track ${this.currentTrackIndex + 1}`)
       // Has next track
       this.currentTrackIndex++
       this.startTime = this.currentTrack.startOffset
       this.loadCurrentTrack()
     } else {
-      console.log(`[LocalPlayer] Ended`)
       this.emit('finished')
     }
   }
@@ -168,7 +165,6 @@ export default class LocalAudioPlayer extends EventEmitter {
             maxRetryDelayMs: 8000,
             shouldRetry: (retryConfig, retryCount, isTimeout, httpStatus, retry) => {
               if (httpStatus?.code === 404 && retryConfig?.maxNumRetry > retryCount) {
-                console.log(`[HLS] Server 404 for fragment retry ${retryCount} of ${retryConfig.maxNumRetry}`)
                 return true
               }
               return retry
@@ -184,7 +180,6 @@ export default class LocalAudioPlayer extends EventEmitter {
       this.hlsInstance.loadSource(this.currentTrack.relativeContentUrl)
 
       this.hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-        console.log('[HLS] Manifest Parsed')
       })
 
       this.hlsInstance.on(Hls.Events.ERROR, (e, data) => {
@@ -217,7 +212,6 @@ export default class LocalAudioPlayer extends EventEmitter {
         }
       })
       this.hlsInstance.on(Hls.Events.DESTROYING, () => {
-        console.log('[HLS] Destroying HLS Instance')
       })
     })
   }
@@ -235,7 +229,6 @@ export default class LocalAudioPlayer extends EventEmitter {
     // When direct play track is loaded current time needs to be set
     this.trackStartTime = Math.max(0, this.startTime - (this.currentTrack.startOffset || 0))
     this.player.src = this.currentTrack.relativeContentUrl
-    console.log(`[LocalPlayer] Loading track src ${this.currentTrack.relativeContentUrl}`)
     this.player.load()
   }
 

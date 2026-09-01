@@ -1,7 +1,3 @@
-/**
- * videoUtils.js
- * Client-side video podcast helpers
- */
 
 export function isVideoEpisode(episode) {
   if (!episode) return false

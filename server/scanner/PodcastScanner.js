@@ -474,7 +474,9 @@ class PodcastScanner {
                 ep.changed('pubDate', true)
                 epChanged = true
               }
-            } catch (_) {}
+            } catch (error) {
+              Logger.error('[PodcastScanner] Failed to parse info.json:', error.message)
+            }
           }
         }
       }

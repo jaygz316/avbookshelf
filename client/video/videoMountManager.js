@@ -1,10 +1,3 @@
-/**
- * videoMountManager.js
- * Coordinates mounting the persistent HTML5 <video> DOM element across containers:
- * 1. Main Viewport (#video-player-container)
- * 2. Floating Mini Player (#floating-mini-video-container)
- * 3. Body Fallback (offscreen container for continuous audio / PiP)
- */
 
 export function mountVideoElement({ isVideoEpisode, isFloatingMiniPlayer, videoVisible }) {
   if (typeof document === 'undefined') return

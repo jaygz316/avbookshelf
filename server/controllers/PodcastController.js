@@ -8,8 +8,8 @@ const fs = require('../libs/fsExtra')
 const cron = require('../libs/nodeCron')
 
 const { getPodcastFeed, findMatchingEpisodes, matchYouTubeEpisodesWithItunesFeed } = require('../utils/podcastUtils')
-const { extractEpisodeNumbers } = require('../video/VideoEpisodeMatcher')
-const { parseDateToTimestampAndString, parseInfoJsonMetadata } = require('../utils/parsers/parseInfoJsonMetadata')
+const { parseInfoJsonMetadata } = require('../utils/parsers/parseInfoJsonMetadata')
+const { mapVideoInfoToEpisode } = require('../video/ytDlpMetadataMapper')
 const { getFileTimestampsWithIno, filePathToPOSIX, isSameOrSubPath } = require('../utils/fileUtils')
 const { validateUrl } = require('../utils/index')
 const htmlSanitizer = require('../utils/htmlSanitizer')
@@ -234,7 +234,7 @@ class PodcastController {
     const limit = req.body.limit != null && !isNaN(req.body.limit) ? Number(req.body.limit) : null
 
     if (isYouTube) {
-      const videoManager = ytDlpManager || global.ytDlpManager || new (require('../video/VideoManager'))()
+      const videoManager = ytDlpManager || global.ytDlpManager || require('../video').videoManager
       try {
         const feedData = await videoManager.getChannelFeed(url, limit)
         if (feedData?.episodes?.length) {
@@ -528,91 +528,9 @@ class PodcastController {
         return res.status(400).json({ error: 'Failed to get video info from URL' })
       }
 
-      const rawDate =
-        videoInfo.release_date ||
-        videoInfo.upload_date ||
-        videoInfo.published_at ||
-        videoInfo.publish_date ||
-        videoInfo.published_time ||
-        videoInfo.publish_time ||
-        videoInfo.pubDate ||
-        videoInfo.pubdate ||
-        videoInfo.publication_date ||
-        videoInfo.modified_date ||
-        videoInfo.datetime ||
-        videoInfo.date ||
-        videoInfo.release_year ||
-        videoInfo.year
-      const rawTimestamp =
-        videoInfo.release_timestamp ||
-        videoInfo.timestamp ||
-        videoInfo.published_timestamp ||
-        videoInfo.modified_timestamp ||
-        videoInfo.start_time
-      let { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
-      if (!publishedAt || !pubDate) {
-        const fallback = parseDateToTimestampAndString(videoInfo.title || '')
-        if (fallback.publishedAt) {
-          publishedAt = publishedAt || fallback.publishedAt
-          pubDate = pubDate || fallback.pubDate
-        }
-      }
-      const extracted = extractEpisodeNumbers(videoInfo.title || '')
-      const season = videoInfo.season_number != null ? String(videoInfo.season_number) : (extracted.season || '')
-      const episodeNum = videoInfo.episode_number != null ? String(videoInfo.episode_number) : (extracted.episode || '')
-      const author = videoInfo.uploader || videoInfo.channel || videoInfo.artist || videoInfo.creator || ''
-
-      let chapters = []
-      if (Array.isArray(videoInfo.chapters) && videoInfo.chapters.length) {
-        chapters = videoInfo.chapters.map((ch, idx) => ({
-          id: idx,
-          start: typeof ch.start_time === 'number' ? ch.start_time : 0,
-          end: typeof ch.end_time === 'number' ? ch.end_time : 0,
-          title: ch.title || `Chapter ${idx + 1}`
-        }))
-      }
-
-      const tags = Array.isArray(videoInfo.tags) ? videoInfo.tags.filter((t) => typeof t === 'string' && t.trim()) : []
-      const categories = Array.isArray(videoInfo.categories) ? videoInfo.categories.filter((c) => typeof c === 'string' && c.trim()) : []
-      const thumbnail = (videoInfo.thumbnails?.length ? videoInfo.thumbnails[videoInfo.thumbnails.length - 1].url : null) || videoInfo.thumbnail || null
-      const duration = videoInfo.duration != null && !isNaN(Number(videoInfo.duration)) ? Number(videoInfo.duration) : null
-
-      const episode = {
-        title: videoInfo.title || 'Untitled',
-        subtitle: author,
-        description: videoInfo.description || '',
-        descriptionPlain: videoInfo.description || '',
-        pubDate,
-        episodeType: videoInfo.episode_type || 'full',
-        season,
-        episode: episodeNum,
-        author,
-        duration: duration ? String(duration) : '',
-        durationSeconds: duration,
-        explicit: '',
-        enclosure: { url, type: 'video/mp4' },
-        publishedAt,
-        guid: videoInfo.id || url,
-        isVideo: true,
-        isYtDlp: true,
-        quality: quality || req.libraryItem?.media?.maxDownloadResolution || 'best_compatible',
-        thumbnail,
-        chapters,
-        extraData: {
-          guid: videoInfo.id || url,
-          webpageUrl: videoInfo.webpage_url || url,
-          uploader: videoInfo.uploader || '',
-          uploaderId: videoInfo.uploader_id || '',
-          uploaderUrl: videoInfo.uploader_url || '',
-          channel: videoInfo.channel || '',
-          channelId: videoInfo.channel_id || '',
-          channelUrl: videoInfo.channel_url || '',
-          viewCount: videoInfo.view_count != null ? Number(videoInfo.view_count) : null,
-          likeCount: videoInfo.like_count != null ? Number(videoInfo.like_count) : null,
-          tags,
-          categories
-        }
-      }
+      const episode = mapVideoInfoToEpisode(videoInfo, url, {
+        quality: quality || req.libraryItem?.media?.maxDownloadResolution || 'best_compatible'
+      })
 
       const podcastManager = this.podcastManager || req.podcastManager || global.podcastManager
       await podcastManager.downloadPodcastEpisodes(req.libraryItem, [episode], false)
@@ -758,7 +676,6 @@ class PodcastController {
     if (hardDelete) {
       const mediaFile = episode.audioFile || episode.videoFile
       if (mediaFile?.metadata?.path) {
-        // TODO: this will trigger the watcher. should maybe handle this gracefully
         await fs
           .remove(mediaFile.metadata.path)
           .then(() => {

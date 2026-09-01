@@ -63,7 +63,7 @@ export default {
     value: Boolean,
     libraryItem: {
       type: Object,
-      default: () => {}
+      default: () => ({})
     }
   },
   data() {

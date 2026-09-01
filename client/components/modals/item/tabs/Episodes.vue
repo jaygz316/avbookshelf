@@ -119,7 +119,6 @@ export default {
           console.error('Failed to update', error)
           return false
         })
-        console.log('updateResult', updateResult)
       } else if (!lastEpisodeCheck) {
         this.$toast.error(this.$strings.ToastDateTimeInvalidOrIncomplete)
         this.checkingNewEpisodes = false
@@ -130,7 +129,6 @@ export default {
         .$get(`/api/podcasts/${this.libraryItemId}/checknew?limit=${this.maxEpisodesToDownload}`)
         .then((response) => {
           if (response.episodes && response.episodes.length) {
-            console.log('New episodes', response.episodes.length)
             this.$toast.success(this.$getString('ToastNewEpisodesFound', [response.episodes.length]))
           } else {
             this.$toast.info(this.$strings.ToastNoNewEpisodesFound)

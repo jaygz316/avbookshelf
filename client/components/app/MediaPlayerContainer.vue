@@ -329,7 +329,6 @@ export default {
       return this.streamLibraryItem?.libraryId || null
     },
     totalDurationPretty() {
-      // Adjusted by playback rate
       return this.$secondsToTimestamp(this.totalDuration / this.currentPlaybackRate)
     },
     podcastAuthor() {
@@ -379,7 +378,6 @@ export default {
       if (!this.isVideoEpisode) return
 
       if (!this.isFullscreen) {
-        // Entering Fullscreen
         this.previousVideoPlayerSize = this.videoPlayerSize
         this.previousWasFloatingMini = this.isFloatingMiniPlayer
 
@@ -516,11 +514,9 @@ export default {
         return i.libraryItemId === libraryItemId
       })
       if (currentQueueIndex < 0) {
-        console.error('Media finished not found in queue - using first in queue', this.playerQueueItems)
         currentQueueIndex = -1
       }
       if (currentQueueIndex === this.playerQueueItems.length - 1) {
-        console.log('Finished last item in queue')
         return
       }
       const nextItemInQueue = this.playerQueueItems[currentQueueIndex + 1]
@@ -769,11 +765,9 @@ export default {
       this.playerHandler.prepareOpenSession(session, this.currentPlaybackRate)
     },
     streamOpen(session) {
-      console.log(`[MediaPlayerContainer] Stream session open`, session)
     },
     streamClosed(streamId) {
       if (this.playerHandler.isPlayingLocalItem && this.playerHandler.currentStreamId === streamId) {
-        console.warn('[MediaPlayerContainer] Closing stream due to request from server')
         this.playerHandler.closePlayer()
       }
     },
@@ -784,7 +778,6 @@ export default {
     },
     streamError(streamId) {
       if (this.playerHandler.isPlayingLocalItem && this.playerHandler.currentStreamId === streamId) {
-        console.warn('[MediaPlayerContainer] Closing stream due to stream error from server')
         this.playerHandler.closePlayer()
       }
     },

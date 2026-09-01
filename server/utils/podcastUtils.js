@@ -243,9 +243,6 @@ function extractEpisodeData(item) {
   episode.durationSeconds = episode.duration ? timestampToSeconds(episode.duration) : null
 
   if (item['psc:chapters']?.[0]?.['psc:chapter']?.length && episode.durationSeconds) {
-    // Example chapter:
-    // {"id":0,"start":0,"end":43.004286,"title":"chapter 1"}
-
     const cleanedChapters = item['psc:chapters'][0]['psc:chapter'].map((chapter, index) => {
       if (!chapter['$']?.title || !chapter['$']?.start || typeof chapter['$']?.start !== 'string' || typeof chapter['$']?.title !== 'string') {
         return null
@@ -586,10 +583,10 @@ module.exports.extractEpisodeData = extractEpisodeData
 module.exports.cleanEpisodeData = cleanEpisodeData
 
 // Video episode extraction and matching logic (modular subsystem)
-const { videoEpisodeMatcher } = require('../video')
+const { VideoEpisodeMatcher } = require('../video')
 
-module.exports.extractEpisodeNumbers = videoEpisodeMatcher.extractEpisodeNumbers
-module.exports.cleanTitleForMatching = videoEpisodeMatcher.cleanTitleForMatching
-module.exports.scoreEpisodeMatch = videoEpisodeMatcher.scoreEpisodeMatch
-module.exports.matchYouTubeEpisodesWithItunesFeed = videoEpisodeMatcher.matchYouTubeEpisodesWithItunesFeed
+module.exports.extractEpisodeNumbers = VideoEpisodeMatcher.extractEpisodeNumbers
+module.exports.cleanTitleForMatching = VideoEpisodeMatcher.cleanTitleForMatching
+module.exports.scoreEpisodeMatch = VideoEpisodeMatcher.scoreEpisodeMatch
+module.exports.matchYouTubeEpisodesWithItunesFeed = VideoEpisodeMatcher.matchYouTubeEpisodesWithItunesFeed
 

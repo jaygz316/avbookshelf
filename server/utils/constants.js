@@ -48,8 +48,6 @@ module.exports.AudioMimeType = {
   AIF: 'audio/x-aiff',
   WEBM: 'audio/webm',
   WEBMA: 'audio/webm',
-  // TODO: Switch to `audio/matroska`? marked as deprecated in IANA registry
-  // ref: https://datatracker.ietf.org/doc/html/rfc9559
   MKA: 'audio/x-matroska',
   AWB: 'audio/amr-wb',
   CAF: 'audio/x-caf',
