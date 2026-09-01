@@ -19,6 +19,7 @@
             <strong className="font-bold">{{ $strings.LabelFilename }}</strong
             >: {{ filename }}
           </p>
+          <div v-else class="w-full inline-flex justify-between max-w-xl">
             <p v-if="episode?.season" class="text-sm text-gray-300">{{ $getString('LabelSeasonNumber', [episode.season]) }}</p>
             <p v-if="episode?.episode" class="text-sm text-gray-300">{{ $getString('LabelEpisodeNumber', [episode.episode]) }}</p>
             <p v-if="episode?.chapters?.length" class="text-sm text-gray-300">{{ $getString('LabelChapterCount', [episode.chapters.length]) }}</p>
