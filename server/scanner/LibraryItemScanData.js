@@ -100,7 +100,7 @@ class LibraryItemScanData {
   /** @type {LibraryItem.LibraryFileObject[]} */
   get audioLibraryFilesRemoved() {
     return this.libraryFilesRemoved.filter((lf) => {
-      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      const ext = lf.metadata?.ext?.slice(1).toLowerCase() || ''
       if (this.mediaType === 'podcast' && globals.SupportedVideoTypes.includes(ext)) return false
       return globals.SupportedAudioTypes.includes(ext)
     })
@@ -109,7 +109,7 @@ class LibraryItemScanData {
   /** @type {LibraryItem.LibraryFileObject[]} */
   get audioLibraryFilesAdded() {
     return this.libraryFilesAdded.filter((lf) => {
-      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      const ext = lf.metadata?.ext?.slice(1).toLowerCase() || ''
       if (this.mediaType === 'podcast' && globals.SupportedVideoTypes.includes(ext)) return false
       return globals.SupportedAudioTypes.includes(ext)
     })
@@ -118,7 +118,7 @@ class LibraryItemScanData {
   /** @type {LibraryItem.LibraryFileObject[]} */
   get audioLibraryFiles() {
     return this.libraryFiles.filter((lf) => {
-      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      const ext = lf.metadata?.ext?.slice(1).toLowerCase() || ''
       if (this.mediaType === 'podcast' && globals.SupportedVideoTypes.includes(ext)) return false
       return globals.SupportedAudioTypes.includes(ext)
     })
@@ -135,7 +135,7 @@ class LibraryItemScanData {
   /** @type {LibraryItem.LibraryFileObject[]} */
   get videoLibraryFilesRemoved() {
     return this.libraryFilesRemoved.filter((lf) => {
-      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      const ext = lf.metadata?.ext?.slice(1).toLowerCase() || ''
       return globals.SupportedVideoTypes.includes(ext)
     })
   }
@@ -143,7 +143,7 @@ class LibraryItemScanData {
   /** @type {LibraryItem.LibraryFileObject[]} */
   get videoLibraryFilesAdded() {
     return this.libraryFilesAdded.filter((lf) => {
-      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      const ext = lf.metadata?.ext?.slice(1).toLowerCase() || ''
       return globals.SupportedVideoTypes.includes(ext)
     })
   }
@@ -151,7 +151,7 @@ class LibraryItemScanData {
   /** @type {LibraryItem.LibraryFileObject[]} */
   get videoLibraryFiles() {
     return this.libraryFiles.filter((lf) => {
-      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      const ext = lf.metadata?.ext?.slice(1).toLowerCase() || ''
       return globals.SupportedVideoTypes.includes(ext)
     })
   }
@@ -159,7 +159,7 @@ class LibraryItemScanData {
   /** @type {LibraryFileModifiedObject[]} */
   get mediaLibraryFilesModified() {
     return this.libraryFilesModified.filter((lf) => {
-      const ext = lf.old.metadata.ext?.slice(1).toLowerCase() || ''
+      const ext = (lf.new?.metadata?.ext || lf.old?.metadata?.ext)?.slice(1).toLowerCase() || ''
       return globals.SupportedAudioTypes.includes(ext) || globals.SupportedVideoTypes?.includes(ext)
     })
   }
@@ -167,7 +167,7 @@ class LibraryItemScanData {
   /** @type {LibraryItem.LibraryFileObject[]} */
   get mediaLibraryFilesRemoved() {
     return this.libraryFilesRemoved.filter((lf) => {
-      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      const ext = lf.metadata?.ext?.slice(1).toLowerCase() || ''
       return globals.SupportedAudioTypes.includes(ext) || globals.SupportedVideoTypes?.includes(ext)
     })
   }
@@ -175,7 +175,7 @@ class LibraryItemScanData {
   /** @type {LibraryItem.LibraryFileObject[]} */
   get mediaLibraryFilesAdded() {
     return this.libraryFilesAdded.filter((lf) => {
-      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      const ext = lf.metadata?.ext?.slice(1).toLowerCase() || ''
       return globals.SupportedAudioTypes.includes(ext) || globals.SupportedVideoTypes?.includes(ext)
     })
   }
@@ -183,49 +183,49 @@ class LibraryItemScanData {
   /** @type {LibraryItem.LibraryFileObject[]} */
   get mediaLibraryFiles() {
     return this.libraryFiles.filter((lf) => {
-      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      const ext = lf.metadata?.ext?.slice(1).toLowerCase() || ''
       return globals.SupportedAudioTypes.includes(ext) || globals.SupportedVideoTypes?.includes(ext)
     })
   }
 
   /** @type {LibraryFileModifiedObject[]} */
   get imageLibraryFilesModified() {
-    return this.libraryFilesModified.filter(lf => globals.SupportedImageTypes.includes(lf.old.metadata.ext?.slice(1).toLowerCase() || ''))
+    return this.libraryFilesModified.filter((lf) => globals.SupportedImageTypes.includes((lf.new?.metadata?.ext || lf.old?.metadata?.ext)?.slice(1).toLowerCase() || ''))
   }
 
   /** @type {LibraryItem.LibraryFileObject[]} */
   get imageLibraryFilesRemoved() {
-    return this.libraryFilesRemoved.filter(lf => globals.SupportedImageTypes.includes(lf.metadata.ext?.slice(1).toLowerCase() || ''))
+    return this.libraryFilesRemoved.filter((lf) => globals.SupportedImageTypes.includes(lf.metadata?.ext?.slice(1).toLowerCase() || ''))
   }
 
   /** @type {LibraryItem.LibraryFileObject[]} */
   get imageLibraryFilesAdded() {
-    return this.libraryFilesAdded.filter(lf => globals.SupportedImageTypes.includes(lf.metadata.ext?.slice(1).toLowerCase() || ''))
+    return this.libraryFilesAdded.filter((lf) => globals.SupportedImageTypes.includes(lf.metadata?.ext?.slice(1).toLowerCase() || ''))
   }
 
   /** @type {LibraryItem.LibraryFileObject[]} */
   get imageLibraryFiles() {
-    return this.libraryFiles.filter(lf => globals.SupportedImageTypes.includes(lf.metadata.ext?.slice(1).toLowerCase() || ''))
+    return this.libraryFiles.filter((lf) => globals.SupportedImageTypes.includes(lf.metadata?.ext?.slice(1).toLowerCase() || ''))
   }
 
   /** @type {LibraryFileModifiedObject[]} */
   get ebookLibraryFilesModified() {
-    return this.libraryFilesModified.filter(lf => globals.SupportedEbookTypes.includes(lf.old.metadata.ext?.slice(1).toLowerCase() || ''))
+    return this.libraryFilesModified.filter((lf) => globals.SupportedEbookTypes.includes((lf.new?.metadata?.ext || lf.old?.metadata?.ext)?.slice(1).toLowerCase() || ''))
   }
 
   /** @type {LibraryItem.LibraryFileObject[]} */
   get ebookLibraryFilesRemoved() {
-    return this.libraryFilesRemoved.filter(lf => globals.SupportedEbookTypes.includes(lf.metadata.ext?.slice(1).toLowerCase() || ''))
+    return this.libraryFilesRemoved.filter((lf) => globals.SupportedEbookTypes.includes(lf.metadata?.ext?.slice(1).toLowerCase() || ''))
   }
 
   /** @type {LibraryItem.LibraryFileObject[]} */
   get ebookLibraryFilesAdded() {
-    return this.libraryFilesAdded.filter(lf => globals.SupportedEbookTypes.includes(lf.metadata.ext?.slice(1).toLowerCase() || ''))
+    return this.libraryFilesAdded.filter((lf) => globals.SupportedEbookTypes.includes(lf.metadata?.ext?.slice(1).toLowerCase() || ''))
   }
 
   /** @type {LibraryItem.LibraryFileObject[]} */
   get ebookLibraryFiles() {
-    return this.libraryFiles.filter(lf => globals.SupportedEbookTypes.includes(lf.metadata.ext?.slice(1).toLowerCase() || ''))
+    return this.libraryFiles.filter((lf) => globals.SupportedEbookTypes.includes(lf.metadata?.ext?.slice(1).toLowerCase() || ''))
   }
 
   /** @type {LibraryItem.LibraryFileObject} */

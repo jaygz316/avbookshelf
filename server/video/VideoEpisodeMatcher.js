@@ -169,8 +169,10 @@ function scoreEpisodeMatch(ytEp, itunesEp, podcastTitle = '') {
   }
 
   // 3. Publish Date Proximity
-  if (ytEp.publishedAt && itunesEp.publishedAt) {
-    const diffDays = Math.abs(ytEp.publishedAt - itunesEp.publishedAt) / (1000 * 60 * 60 * 24)
+  const t1 = Number(ytEp.publishedAt)
+  const t2 = Number(itunesEp.publishedAt)
+  if (!isNaN(t1) && !isNaN(t2) && t1 > 0 && t2 > 0) {
+    const diffDays = Math.abs(t1 - t2) / (1000 * 60 * 60 * 24)
     if (diffDays <= 1.0) {
       score += 0.35 // Published within 24h
     } else if (diffDays <= 3.0) {
@@ -295,10 +297,12 @@ function matchYouTubeEpisodesWithItunesFeed(ytEpisodes, itunesEpisodes, options 
     if (a.publishedAt && b.publishedAt && a.publishedAt !== b.publishedAt) {
       return b.publishedAt - a.publishedAt
     }
-    const aEpNum = Number(a.episode)
-    const bEpNum = Number(b.episode)
-    if (!isNaN(aEpNum) && !isNaN(bEpNum) && aEpNum !== bEpNum) {
-      return bEpNum - aEpNum
+    const hasAEp = a.episode != null && String(a.episode).trim() !== '' && !isNaN(Number(a.episode))
+    const hasBEp = b.episode != null && String(b.episode).trim() !== '' && !isNaN(Number(b.episode))
+    if (hasAEp && hasBEp) {
+      const aEpNum = Number(a.episode)
+      const bEpNum = Number(b.episode)
+      if (aEpNum !== bEpNum) return bEpNum - aEpNum
     }
     return 0
   })

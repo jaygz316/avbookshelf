@@ -42,7 +42,8 @@ class MediaProbeData {
     }
   }
 
-  setData(data) {
+  setData(data = {}) {
+    if (!data) return
     const videoStream = data.video_stream
     if (videoStream) {
       const isCoverArt = Boolean(videoStream.attached_pic || (!videoStream.frame_rate && (videoStream.codec === 'mjpeg' || videoStream.codec === 'png' || videoStream.codec === 'bmp' || videoStream.codec === 'webp')))

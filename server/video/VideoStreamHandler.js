@@ -24,12 +24,14 @@ class VideoStreamHandler {
    * @param {Array<string>} codecOptions
    * @param {string|null} [encoder=null]
    */
-  applyVideoTranscodeOptions(ffmpeg, transcodeOptions, tracks, codecOptions, encoder = null) {
+  applyVideoTranscodeOptions(ffmpeg, transcodeOptions = {}, tracks = [], codecOptions = [], encoder = null) {
     codecOptions.push('-map 0:v:0', '-map 0:a:0?')
 
-    const videoTrack = tracks[0]
+    const opts = transcodeOptions || {}
+    const trackList = Array.isArray(tracks) ? tracks : []
+    const videoTrack = trackList[0]
     const isH264 = videoTrack?.codec === 'h264'
-    const forceVideoReEncode = !!transcodeOptions.forceVideoReEncode || !!transcodeOptions.forceVideoTranscode || !!transcodeOptions.maxResolution
+    const forceVideoReEncode = !!opts.forceVideoReEncode || !!opts.forceVideoTranscode || !!opts.maxResolution
 
     if (isH264 && !forceVideoReEncode) {
       codecOptions.push('-c:v copy')
@@ -43,13 +45,17 @@ class VideoStreamHandler {
       } else {
         codecOptions.push('-c:v libx264', '-preset veryfast', '-crf 23', '-pix_fmt yuv420p', '-threads 4')
       }
-      if (transcodeOptions.maxResolution) {
+      if (opts.maxResolution) {
         const allowedResolutions = [360, 480, 720, 1080, 1440, 2160]
-        const res = parseInt(String(transcodeOptions.maxResolution).replace(/p$/i, ''), 10)
+        const res = parseInt(String(opts.maxResolution).replace(/p$/i, ''), 10)
         if (!isNaN(res) && allowedResolutions.includes(res)) {
-          codecOptions.push('-vf', `scale=-2:${res}`)
+          if (activeEncoder === 'h264_vaapi') {
+            codecOptions.push('-vf', `scale_vaapi=w=-2:h=${res}`)
+          } else {
+            codecOptions.push('-vf', `scale=-2:${res}`)
+          }
         } else {
-          Logger.warn(`[VideoStreamHandler] Invalid maxResolution "${transcodeOptions.maxResolution}" - ignoring`)
+          Logger.warn(`[VideoStreamHandler] Invalid maxResolution "${opts.maxResolution}" - ignoring`)
         }
       }
     }
@@ -67,7 +73,8 @@ class VideoStreamHandler {
    * @returns {Object}
    */
   getVideoTrack(libraryItemId, episode = {}, videoFile = null) {
-    const vf = videoFile || episode.videoFile
+    const ep = episode || {}
+    const vf = videoFile || ep.videoFile
     if (!vf) return null
 
     const metadata = vf.metadata || {}
@@ -77,7 +84,7 @@ class VideoStreamHandler {
       index: vf.index || 1,
       startOffset: 0,
       duration: vf.duration || 0,
-      title: episode.title || metadata.filename || 'Video',
+      title: ep.title || metadata.filename || 'Video',
       contentUrl,
       mimeType: vf.mimeType || 'video/mp4',
       codec: vf.codec || null,
@@ -89,7 +96,7 @@ class VideoStreamHandler {
       audioChannels: vf.audioChannels || null,
       audioSampleRate: vf.audioSampleRate || null,
       audioBitRate: vf.audioBitRate || null,
-      thumbnail: vf.thumbnail ? `/local/${libraryItemId}/${vf.thumbnail}` : (episode.thumbnail || null),
+      thumbnail: vf.thumbnail ? `/local/${libraryItemId}/${vf.thumbnail}` : (ep.thumbnail || null),
       isVideo: true
     }
   }

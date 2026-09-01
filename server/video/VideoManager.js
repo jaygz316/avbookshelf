@@ -91,6 +91,7 @@ class VideoManager {
     const outputTemplate = Path.join(outputDir, `${filename}.%(ext)s`)
     const args = [
       '--no-playlist',
+      '--no-colors',
       '-f',
       format,
       '--merge-output-format',
@@ -119,6 +120,8 @@ class VideoManager {
       let lineBuffer = ''
       let stderrBuffer = ''
 
+      const isIgnoredLine = (l) => /^(\[[a-zA-Z0-9_.-]+\]|PROGRESS:|WARNING:|ERROR:)/.test(l)
+
       const processLine = (rawLine) => {
         const line = rawLine.replace(/\r/g, '').trim()
         if (!line) return
@@ -140,7 +143,11 @@ class VideoManager {
           const eta = rawEta && rawEta !== 'NA' && rawEta !== 'Unknown' ? rawEta : null
 
           if (onProgress && (percent !== null || speed !== null)) {
-            onProgress({ percent, speed, eta })
+            try {
+              onProgress({ percent, speed, eta })
+            } catch (err) {
+              Logger.error(`[VideoManager] onProgress error:`, err)
+            }
           }
           return
         }
@@ -152,11 +159,15 @@ class VideoManager {
           const speedMatch = line.match(/at\s+([\d.]+\s*\S+\/s)/)
           const etaMatch = line.match(/ETA\s+(\S+)/)
           if (onProgress) {
-            onProgress({
-              percent,
-              speed: speedMatch ? speedMatch[1].trim() : null,
-              eta: etaMatch ? etaMatch[1].trim() : null
-            })
+            try {
+              onProgress({
+                percent,
+                speed: speedMatch ? speedMatch[1].trim() : null,
+                eta: etaMatch ? etaMatch[1].trim() : null
+              })
+            } catch (err) {
+              Logger.error(`[VideoManager] onProgress error:`, err)
+            }
           }
           return
         }
@@ -165,52 +176,76 @@ class VideoManager {
         const byteProgressMatch = line.match(/\[download\]\s+[\d.]+\s*\S+\s+at\s+([\d.]+\s*\S+\/s)/)
         if (byteProgressMatch) {
           if (onProgress) {
-            onProgress({
-              percent: null,
-              speed: byteProgressMatch[1].trim(),
-              eta: null
-            })
+            try {
+              onProgress({
+                percent: null,
+                speed: byteProgressMatch[1].trim(),
+                eta: null
+              })
+            } catch (err) {
+              Logger.error(`[VideoManager] onProgress error:`, err)
+            }
           }
           return
         }
 
-        // If not a progress line or info line, save for capturing final filepath from --print after_move:filepath
-        if (!line.startsWith('[download]') && !line.startsWith('[info]') && !line.startsWith('[generic]') && !line.startsWith('PROGRESS:')) {
+        // If not a progress line or tag line, save for capturing final filepath from --print after_move:filepath
+        if (!isIgnoredLine(line)) {
           stdoutBuffer += line + '\n'
         }
       }
 
       proc.stdout.on('data', (data) => {
-        lineBuffer += data.toString()
-        const lines = lineBuffer.split('\n')
-        lineBuffer = lines.pop()
-        for (const line of lines) {
-          processLine(line)
+        try {
+          lineBuffer += data.toString()
+          const lines = lineBuffer.split('\n')
+          lineBuffer = lines.pop()
+          for (const line of lines) {
+            processLine(line)
+          }
+        } catch (err) {
+          Logger.error(`[VideoManager] stdout error:`, err)
         }
       })
 
       proc.stderr.on('data', (data) => {
-        stderrBuffer += data.toString()
-        const lines = stderrBuffer.split('\n')
-        stderrBuffer = lines.pop()
-        for (const line of lines) {
-          const trimmed = line.replace(/\r/g, '').trim()
-          if (!trimmed) continue
-          const pctMatch = trimmed.match(/\[download\]\s+([\d.]+)%/)
-          if (pctMatch) {
-            if (onProgress) {
-              const speedMatch = trimmed.match(/at\s+([\d.]+\s*\S+\/s)/)
-              const etaMatch = trimmed.match(/ETA\s+(\S+)/)
-              onProgress({
-                percent: parseFloat(pctMatch[1]),
-                speed: speedMatch ? speedMatch[1].trim() : null,
-                eta: etaMatch ? etaMatch[1] : null
-              })
+        try {
+          stderrBuffer += data.toString()
+          const lines = stderrBuffer.split('\n')
+          stderrBuffer = lines.pop()
+          for (const line of lines) {
+            const trimmed = line.replace(/\r/g, '').trim()
+            if (!trimmed) continue
+            const pctMatch = trimmed.match(/\[download\]\s+([\d.]+)%/)
+            if (pctMatch) {
+              if (onProgress) {
+                try {
+                  const speedMatch = trimmed.match(/at\s+([\d.]+\s*\S+\/s)/)
+                  const etaMatch = trimmed.match(/ETA\s+(\S+)/)
+                  onProgress({
+                    percent: parseFloat(pctMatch[1]),
+                    speed: speedMatch ? speedMatch[1].trim() : null,
+                    eta: etaMatch ? etaMatch[1] : null
+                  })
+                } catch (err) {
+                  Logger.error(`[VideoManager] onProgress error:`, err)
+                }
+              }
+            } else if (!trimmed.startsWith('WARNING:')) {
+              Logger.debug(`[VideoManager] ${trimmed}`)
             }
-          } else if (!trimmed.startsWith('WARNING:')) {
-            Logger.debug(`[VideoManager] ${trimmed}`)
           }
+        } catch (err) {
+          Logger.error(`[VideoManager] stderr error:`, err)
         }
+      })
+
+      proc.stdout.on('error', (err) => {
+        Logger.error(`[VideoManager] stdout stream error: ${err.message}`)
+      })
+
+      proc.stderr.on('error', (err) => {
+        Logger.error(`[VideoManager] stderr stream error: ${err.message}`)
       })
 
       proc.on('close', (code) => {
@@ -220,7 +255,18 @@ class VideoManager {
           Logger.error(`[VideoManager] Download failed: ${err.message}`)
           return reject(err)
         }
-        const filepath = stdoutBuffer.trim().split('\n').pop().trim()
+        const filepath = stdoutBuffer
+          .trim()
+          .split('\n')
+          .filter((l) => l && !isIgnoredLine(l.trim()))
+          .pop()
+          ?.trim()
+
+        if (!filepath) {
+          const err = new Error('yt-dlp completed successfully but output filepath could not be resolved')
+          Logger.error(`[VideoManager] ${err.message}`)
+          return reject(err)
+        }
         resolve({ filepath })
       })
 

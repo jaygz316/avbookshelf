@@ -347,7 +347,7 @@ class Podcast extends Model {
    * @returns {import('./Book').AudioTrack[]}
    */
   getTracklist(libraryItemId, episodeId) {
-    const episode = this.podcastEpisodes.find((ep) => ep.id === episodeId)
+    const episode = this.podcastEpisodes?.find((ep) => ep.id === episodeId)
     if (!episode) {
       Logger.error(`[Podcast] getTracklist: episode not found`, episodeId)
       return []
@@ -368,17 +368,17 @@ class Podcast extends Model {
    * @returns {import('./PodcastEpisode').ChapterObject[]}
    */
   getChapters(episodeId) {
-    const episode = this.podcastEpisodes.find((ep) => ep.id === episodeId)
+    const episode = this.podcastEpisodes?.find((ep) => ep.id === episodeId)
     if (!episode) {
       Logger.error(`[Podcast] getChapters: episode not found`, episodeId)
       return []
     }
 
-    return structuredClone(episode.chapters) || []
+    return (episode.chapters ? structuredClone(episode.chapters) : []) || []
   }
 
   getPlaybackTitle(episodeId) {
-    const episode = this.podcastEpisodes.find((ep) => ep.id === episodeId)
+    const episode = this.podcastEpisodes?.find((ep) => ep.id === episodeId)
     if (!episode) {
       Logger.error(`[Podcast] getPlaybackTitle: episode not found`, episodeId)
       return ''
@@ -392,7 +392,7 @@ class Podcast extends Model {
   }
 
   getPlaybackDuration(episodeId) {
-    const episode = this.podcastEpisodes.find((ep) => ep.id === episodeId)
+    const episode = this.podcastEpisodes?.find((ep) => ep.id === episodeId)
     if (!episode) {
       Logger.error(`[Podcast] getPlaybackDuration: episode not found`, episodeId)
       return 0
@@ -406,7 +406,7 @@ class Podcast extends Model {
    * @returns {number} - Unix timestamp
    */
   getLatestEpisodePublishedAt() {
-    return this.podcastEpisodes.reduce((latest, episode) => {
+    return (this.podcastEpisodes || []).reduce((latest, episode) => {
       if (episode.publishedAt?.valueOf() > latest) {
         return episode.publishedAt.valueOf()
       }
@@ -422,7 +422,7 @@ class Podcast extends Model {
    */
   checkHasEpisodeByFeedEpisode(feedEpisode) {
     if (!feedEpisode) return false
-    return this.podcastEpisodes.some((ep) => (ep.checkMatchesFeedEpisode ? ep.checkMatchesFeedEpisode(feedEpisode) : ep.checkMatchesGuidOrEnclosureUrl(feedEpisode.guid, feedEpisode.enclosure?.url)))
+    return (this.podcastEpisodes || []).some((ep) => (ep.checkMatchesFeedEpisode ? ep.checkMatchesFeedEpisode(feedEpisode) : ep.checkMatchesGuidOrEnclosureUrl(feedEpisode.guid, feedEpisode.enclosure?.url)))
   }
 
   /**

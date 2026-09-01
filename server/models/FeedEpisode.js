@@ -89,16 +89,17 @@ class FeedEpisode extends Model {
    */
   static async createFromPodcastEpisodes(libraryItemExpanded, feed, slug, transaction) {
     const feedEpisodeObjs = []
+    const podcastEpisodes = [...(libraryItemExpanded.media?.podcastEpisodes || [])]
 
     // Sort podcastEpisodes by pubDate. episodic is newest to oldest. serial is oldest to newest.
     if (feed.podcastType === 'episodic') {
-      libraryItemExpanded.media.podcastEpisodes.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
+      podcastEpisodes.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
     } else {
-      libraryItemExpanded.media.podcastEpisodes.sort((a, b) => new Date(a.pubDate) - new Date(b.pubDate))
+      podcastEpisodes.sort((a, b) => new Date(a.pubDate) - new Date(b.pubDate))
     }
 
     let numExisting = 0
-    for (const episode of libraryItemExpanded.media.podcastEpisodes) {
+    for (const episode of podcastEpisodes) {
       const mediaFilePath = episode.audioFile?.metadata?.path || episode.videoFile?.metadata?.path
       // Check for existing episode by filepath
       const existingEpisode = feed.feedEpisodes?.find((feedEpisode) => {

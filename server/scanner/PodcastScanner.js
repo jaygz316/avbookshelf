@@ -459,7 +459,7 @@ class PodcastScanner {
       }
     }
 
-    // If no cover then extract cover from audio file if available
+    // If no cover then extract cover from audio file if available, or fall back to video thumbnail
     if (!media.coverPath && existingPodcastEpisodes.length) {
       const audioFiles = existingPodcastEpisodes.map((ep) => ep.audioFile).filter(Boolean)
       if (audioFiles.length) {
@@ -468,6 +468,17 @@ class PodcastScanner {
           libraryScan.addLog(LogLevel.DEBUG, `Updating podcast "${podcastMetadata.title}" extracted embedded cover art from audio file to path "${extractedCoverPath}"`)
           media.coverPath = extractedCoverPath
           hasMediaChanges = true
+        }
+      }
+      if (!media.coverPath) {
+        const videoEpisodeWithThumb = existingPodcastEpisodes.find((ep) => ep.videoFile?.thumbnail || ep.thumbnail)
+        if (videoEpisodeWithThumb) {
+          const thumbRel = videoEpisodeWithThumb.videoFile?.thumbnail || videoEpisodeWithThumb.thumbnail
+          const thumbPath = Path.join(existingLibraryItem.path, Path.basename(thumbRel))
+          if (await fsExtra.pathExists(thumbPath)) {
+            media.coverPath = filePathToPOSIX(thumbPath)
+            hasMediaChanges = true
+          }
         }
       }
     }
@@ -695,6 +706,7 @@ class PodcastScanner {
       releaseDate: libraryItem.media.releaseDate,
       genres: libraryItem.media.genres || [],
       feedURL: libraryItem.media.feedURL,
+      feedType: libraryItem.media.feedType || 'rss',
       imageURL: libraryItem.media.imageURL,
       itunesPageURL: libraryItem.media.itunesPageURL,
       itunesId: libraryItem.media.itunesId,
@@ -702,13 +714,14 @@ class PodcastScanner {
       asin: libraryItem.media.asin,
       language: libraryItem.media.language,
       explicit: !!libraryItem.media.explicit,
-      podcastType: libraryItem.media.podcastType
+      podcastType: libraryItem.media.podcastType,
+      maxDownloadResolution: libraryItem.media.maxDownloadResolution || 'best'
     }
     return fsExtra
       .writeFile(metadataFilePath, JSON.stringify(jsonObject, null, 2))
       .then(async () => {
         // Add metadata.json to libraryFiles array if it is new
-        let metadataLibraryFile = libraryItem.libraryFiles.find((lf) => lf.metadata.path === filePathToPOSIX(metadataFilePath))
+        let metadataLibraryFile = (libraryItem.libraryFiles || []).find((lf) => lf.metadata?.path === filePathToPOSIX(metadataFilePath))
         if (storeMetadataWithItem) {
           if (!metadataLibraryFile) {
             const newLibraryFile = new LibraryFile()
