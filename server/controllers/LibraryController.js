@@ -1390,7 +1390,7 @@ class LibraryController {
     }
 
     const podcasts = await Database.podcastModel.findAll({
-      attributes: ['id', 'title', 'itunesId'],
+      attributes: ['id', 'title', 'itunesId', 'feedURL'],
       include: {
         model: Database.libraryItemModel,
         attributes: ['id', 'libraryId'],
@@ -1405,6 +1405,7 @@ class LibraryController {
         return {
           title: p.title,
           itunesId: p.itunesId,
+          feedURL: p.feedURL,
           libraryItemId: p.libraryItem.id,
           libraryId: p.libraryItem.libraryId
         }

@@ -19,7 +19,7 @@ const parseNameString = require('./parsers/parseNameString')
 function isMediaFile(mediaType, ext, audiobooksOnly = false) {
   if (!ext) return false
   const extclean = ext.slice(1).toLowerCase()
-  if (mediaType === 'podcast') return globals.SupportedAudioTypes.includes(extclean)
+  if (mediaType === 'podcast') return globals.SupportedAudioTypes.includes(extclean) || globals.SupportedVideoTypes.includes(extclean)
   else if (audiobooksOnly) return globals.SupportedAudioTypes.includes(extclean)
   return globals.SupportedAudioTypes.includes(extclean) || globals.SupportedEbookTypes.includes(extclean)
 }

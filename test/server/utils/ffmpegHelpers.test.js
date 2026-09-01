@@ -4,9 +4,15 @@ const fileUtils = require('../../../server/utils/fileUtils')
 const fs = require('../../../server/libs/fsExtra')
 const EventEmitter = require('events')
 
-const { generateFFMetadata, addCoverAndMetadataToFile } = require('../../../server/utils/ffmpegHelpers')
+const { generateFFMetadata, addCoverAndMetadataToFile, extractVideoFrame } = require('../../../server/utils/ffmpegHelpers')
 
 global.isWin = process.platform === 'win32'
+
+describe('extractVideoFrame', () => {
+  it('should be a function', () => {
+    expect(extractVideoFrame).to.be.a('function')
+  })
+})
 
 describe('generateFFMetadata', () => {
   function createTestSetup() {

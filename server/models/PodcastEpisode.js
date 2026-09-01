@@ -40,12 +40,18 @@ class PodcastEpisode extends Model {
     this.publishedAt
     /** @type {import('./Book').AudioFileObject} */
     this.audioFile
+    /** @type {Object} */
+    this.videoFile
+    /** @type {string} */
+    this.episodeMediaType
     /** @type {ChapterObject[]} */
     this.chapters
     /** @type {Object} */
     this.extraData
     /** @type {string} */
     this.podcastId
+    /** @type {string} */
+    this.thumbnail
     /** @type {Date} */
     this.createdAt
     /** @type {Date} */
@@ -56,9 +62,11 @@ class PodcastEpisode extends Model {
    *
    * @param {import('../utils/podcastUtils').RssPodcastEpisode} rssPodcastEpisode
    * @param {string} podcastId
-   * @param {import('../objects/files/AudioFile')} audioFile
+   * @param {import('../objects/files/AudioFile')|import('../objects/files/VideoFile')} mediaFile
+   * @param {boolean} isVideo
    */
-  static async createFromRssPodcastEpisode(rssPodcastEpisode, podcastId, audioFile) {
+  static async createFromRssPodcastEpisode(rssPodcastEpisode, podcastId, mediaFile, isVideo = false) {
+    const isVideoEpisode = isVideo || !!rssPodcastEpisode.isVideo
     const podcastEpisode = {
       index: null,
       season: rssPodcastEpisode.season,
@@ -73,16 +81,22 @@ class PodcastEpisode extends Model {
       enclosureType: rssPodcastEpisode.enclosure?.type || null,
       publishedAt: rssPodcastEpisode.publishedAt,
       podcastId,
-      audioFile: audioFile.toJSON(),
+      audioFile: isVideoEpisode ? null : mediaFile.toJSON(),
+      videoFile: isVideoEpisode ? mediaFile.toJSON() : null,
+      episodeMediaType: isVideoEpisode ? 'video' : 'audio',
+      thumbnail: rssPodcastEpisode.thumbnail || null,
       chapters: [],
       extraData: {}
     }
     if (rssPodcastEpisode.guid) {
       podcastEpisode.extraData.guid = rssPodcastEpisode.guid
     }
+    if (rssPodcastEpisode.itunesGuid) {
+      podcastEpisode.extraData.itunesGuid = rssPodcastEpisode.itunesGuid
+    }
 
-    if (audioFile.chapters?.length) {
-      podcastEpisode.chapters = audioFile.chapters.map((ch) => ({ ...ch }))
+    if (mediaFile.chapters?.length) {
+      podcastEpisode.chapters = mediaFile.chapters.map((ch) => ({ ...ch }))
     } else if (rssPodcastEpisode.chapters?.length) {
       podcastEpisode.chapters = rssPodcastEpisode.chapters.map((ch) => ({ ...ch }))
     }
@@ -116,6 +130,12 @@ class PodcastEpisode extends Model {
         publishedAt: DataTypes.DATE,
 
         audioFile: DataTypes.JSON,
+        videoFile: DataTypes.JSON,
+        episodeMediaType: {
+          type: DataTypes.STRING,
+          defaultValue: 'audio'
+        },
+        thumbnail: DataTypes.STRING,
         chapters: DataTypes.JSON,
         extraData: DataTypes.JSON
       },
@@ -148,31 +168,109 @@ class PodcastEpisode extends Model {
     PodcastEpisode.addHook('afterCreate', async (instance) => {
       libraryItemsPodcastFilters.clearCountCache('podcastEpisode', 'afterCreate')
     })
+    return this
   }
 
   get size() {
-    return this.audioFile?.metadata.size || 0
+    return this.audioFile?.metadata?.size || this.videoFile?.metadata?.size || 0
   }
 
   get duration() {
-    return this.audioFile?.duration || 0
+    return this.audioFile?.duration || this.videoFile?.duration || 0
+  }
+
+  get isVideo() {
+    return this.episodeMediaType === 'video'
   }
 
   /**
-   * Used for matching the episode with an episode in the RSS feed
+   * Check if episode matches guid or enclosure url
    *
    * @param {string} guid
    * @param {string} enclosureURL
    * @returns {boolean}
    */
   checkMatchesGuidOrEnclosureUrl(guid, enclosureURL) {
-    if (this.extraData?.guid && this.extraData.guid === guid) {
+    if (guid && this.extraData?.guid && String(this.extraData.guid) === String(guid)) {
       return true
     }
-    if (this.enclosureURL && this.enclosureURL === enclosureURL) {
+    if (guid && this.extraData?.itunesGuid && String(this.extraData.itunesGuid) === String(guid)) {
+      return true
+    }
+    if (enclosureURL && this.enclosureURL && this.enclosureURL === enclosureURL) {
       return true
     }
     return false
+  }
+
+  /**
+   * Used for matching the episode with a feed episode (by guid, url, season/episode, or title)
+   *
+   * @param {Object} feedEpisode
+   * @returns {boolean}
+   */
+  checkMatchesFeedEpisode(feedEpisode) {
+    if (!feedEpisode) return false
+    if (this.checkMatchesGuidOrEnclosureUrl(feedEpisode.guid, feedEpisode.enclosure?.url)) {
+      return true
+    }
+    // Check itunesGuid against extraData guid or itunesGuid
+    if (feedEpisode.itunesGuid && this.extraData?.guid && String(this.extraData.guid) === String(feedEpisode.itunesGuid)) {
+      return true
+    }
+    if (feedEpisode.guid && this.extraData?.itunesGuid && String(this.extraData.itunesGuid) === String(feedEpisode.guid)) {
+      return true
+    }
+    if (feedEpisode.itunesGuid && this.extraData?.itunesGuid && String(this.extraData.itunesGuid) === String(feedEpisode.itunesGuid)) {
+      return true
+    }
+    if (feedEpisode.season && this.season && feedEpisode.episode && this.episode) {
+      if (String(this.season).trim() === String(feedEpisode.season).trim() && String(this.episode).trim() === String(feedEpisode.episode).trim()) {
+        return true
+      }
+    } else if (feedEpisode.episode && this.episode) {
+      const feedSeason = String(feedEpisode.season || '1').trim()
+      const thisSeason = String(this.season || '1').trim()
+      if (feedSeason === thisSeason && String(this.episode).trim() === String(feedEpisode.episode).trim()) {
+        return true
+      }
+    }
+    if (this.title && feedEpisode.title && this.title.trim().toLowerCase() === feedEpisode.title.trim().toLowerCase()) {
+      return true
+    }
+    if (this.title && feedEpisode.canonicalTitle && this.title.trim().toLowerCase() === feedEpisode.canonicalTitle.trim().toLowerCase()) {
+      return true
+    }
+    // Clean title match (stripping brackets, tags, etc.)
+    try {
+      const { cleanTitleForMatching } = require('../utils/podcastUtils')
+      const cleanThis = cleanTitleForMatching(this.title)
+      if (cleanThis && cleanThis.length > 3) {
+        if (feedEpisode.title && cleanTitleForMatching(feedEpisode.title) === cleanThis) {
+          return true
+        }
+        if (feedEpisode.canonicalTitle && cleanTitleForMatching(feedEpisode.canonicalTitle) === cleanThis) {
+          return true
+        }
+      }
+    } catch (_) {}
+    return false
+  }
+
+  /**
+   * Used in client video players
+   *
+   * @param {string} libraryItemId
+   * @returns {Object|null}
+   */
+  getVideoTrack(libraryItemId) {
+    if (!this.videoFile) return null
+    const track = structuredClone(this.videoFile)
+    track.startOffset = 0
+    track.title = this.videoFile.metadata?.filename
+    track.index = 1
+    track.contentUrl = `/api/items/${libraryItemId}/file/${track.ino}`
+    return track
   }
 
   /**
@@ -182,9 +280,13 @@ class PodcastEpisode extends Model {
    * @returns {import('./Book').AudioTrack}
    */
   getAudioTrack(libraryItemId) {
+    if (this.isVideo && this.videoFile) {
+      return this.getVideoTrack(libraryItemId)
+    }
+    if (!this.audioFile) return null
     const track = structuredClone(this.audioFile)
     track.startOffset = 0
-    track.title = this.audioFile.metadata.filename
+    track.title = this.audioFile.metadata?.filename
     track.index = 1 // Podcast episodes only have one track
     track.contentUrl = `/api/items/${libraryItemId}/file/${track.ino}`
     return track
@@ -220,7 +322,10 @@ class PodcastEpisode extends Model {
       guid: this.extraData?.guid || null,
       pubDate: this.pubDate,
       chapters: structuredClone(this.chapters),
-      audioFile: structuredClone(this.audioFile),
+      audioFile: this.audioFile ? structuredClone(this.audioFile) : null,
+      videoFile: this.videoFile ? structuredClone(this.videoFile) : null,
+      episodeMediaType: this.episodeMediaType || (this.videoFile ? 'video' : 'audio'),
+      thumbnail: this.thumbnail || null,
       publishedAt: this.publishedAt?.valueOf() || null,
       addedAt: this.createdAt.valueOf(),
       updatedAt: this.updatedAt.valueOf()
@@ -231,6 +336,9 @@ class PodcastEpisode extends Model {
     const json = this.toOldJSON(libraryItemId)
 
     json.audioTrack = this.getAudioTrack(libraryItemId)
+    if (this.isVideo) {
+      json.videoTrack = this.getVideoTrack(libraryItemId)
+    }
     json.size = this.size
     json.duration = this.duration
 

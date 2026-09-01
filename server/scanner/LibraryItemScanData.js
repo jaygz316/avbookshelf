@@ -83,24 +83,109 @@ class LibraryItemScanData {
     return (this.audioLibraryFilesRemoved.length + this.audioLibraryFilesAdded.length + this.audioLibraryFilesModified.length) > 0
   }
 
+  /** @type {boolean} */
+  get hasMediaFileChanges() {
+    return (this.mediaLibraryFilesRemoved.length + this.mediaLibraryFilesAdded.length + this.mediaLibraryFilesModified.length) > 0
+  }
+
   /** @type {LibraryFileModifiedObject[]} */
   get audioLibraryFilesModified() {
-    return this.libraryFilesModified.filter(lf => globals.SupportedAudioTypes.includes(lf.old.metadata.ext?.slice(1).toLowerCase() || ''))
+    return this.libraryFilesModified.filter((lf) => {
+      const ext = lf.old.metadata.ext?.slice(1).toLowerCase() || ''
+      if (this.mediaType === 'podcast' && globals.SupportedVideoTypes.includes(ext)) return false
+      return globals.SupportedAudioTypes.includes(ext)
+    })
   }
 
   /** @type {LibraryItem.LibraryFileObject[]} */
   get audioLibraryFilesRemoved() {
-    return this.libraryFilesRemoved.filter(lf => globals.SupportedAudioTypes.includes(lf.metadata.ext?.slice(1).toLowerCase() || ''))
+    return this.libraryFilesRemoved.filter((lf) => {
+      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      if (this.mediaType === 'podcast' && globals.SupportedVideoTypes.includes(ext)) return false
+      return globals.SupportedAudioTypes.includes(ext)
+    })
   }
 
   /** @type {LibraryItem.LibraryFileObject[]} */
   get audioLibraryFilesAdded() {
-    return this.libraryFilesAdded.filter(lf => globals.SupportedAudioTypes.includes(lf.metadata.ext?.slice(1).toLowerCase() || ''))
+    return this.libraryFilesAdded.filter((lf) => {
+      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      if (this.mediaType === 'podcast' && globals.SupportedVideoTypes.includes(ext)) return false
+      return globals.SupportedAudioTypes.includes(ext)
+    })
   }
 
   /** @type {LibraryItem.LibraryFileObject[]} */
   get audioLibraryFiles() {
-    return this.libraryFiles.filter(lf => globals.SupportedAudioTypes.includes(lf.metadata.ext?.slice(1).toLowerCase() || ''))
+    return this.libraryFiles.filter((lf) => {
+      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      if (this.mediaType === 'podcast' && globals.SupportedVideoTypes.includes(ext)) return false
+      return globals.SupportedAudioTypes.includes(ext)
+    })
+  }
+
+  /** @type {LibraryFileModifiedObject[]} */
+  get videoLibraryFilesModified() {
+    return this.libraryFilesModified.filter((lf) => {
+      const ext = lf.old.metadata.ext?.slice(1).toLowerCase() || ''
+      return globals.SupportedVideoTypes.includes(ext)
+    })
+  }
+
+  /** @type {LibraryItem.LibraryFileObject[]} */
+  get videoLibraryFilesRemoved() {
+    return this.libraryFilesRemoved.filter((lf) => {
+      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      return globals.SupportedVideoTypes.includes(ext)
+    })
+  }
+
+  /** @type {LibraryItem.LibraryFileObject[]} */
+  get videoLibraryFilesAdded() {
+    return this.libraryFilesAdded.filter((lf) => {
+      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      return globals.SupportedVideoTypes.includes(ext)
+    })
+  }
+
+  /** @type {LibraryItem.LibraryFileObject[]} */
+  get videoLibraryFiles() {
+    return this.libraryFiles.filter((lf) => {
+      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      return globals.SupportedVideoTypes.includes(ext)
+    })
+  }
+
+  /** @type {LibraryFileModifiedObject[]} */
+  get mediaLibraryFilesModified() {
+    return this.libraryFilesModified.filter((lf) => {
+      const ext = lf.old.metadata.ext?.slice(1).toLowerCase() || ''
+      return globals.SupportedAudioTypes.includes(ext) || globals.SupportedVideoTypes?.includes(ext)
+    })
+  }
+
+  /** @type {LibraryItem.LibraryFileObject[]} */
+  get mediaLibraryFilesRemoved() {
+    return this.libraryFilesRemoved.filter((lf) => {
+      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      return globals.SupportedAudioTypes.includes(ext) || globals.SupportedVideoTypes?.includes(ext)
+    })
+  }
+
+  /** @type {LibraryItem.LibraryFileObject[]} */
+  get mediaLibraryFilesAdded() {
+    return this.libraryFilesAdded.filter((lf) => {
+      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      return globals.SupportedAudioTypes.includes(ext) || globals.SupportedVideoTypes?.includes(ext)
+    })
+  }
+
+  /** @type {LibraryItem.LibraryFileObject[]} */
+  get mediaLibraryFiles() {
+    return this.libraryFiles.filter((lf) => {
+      const ext = lf.metadata.ext?.slice(1).toLowerCase() || ''
+      return globals.SupportedAudioTypes.includes(ext) || globals.SupportedVideoTypes?.includes(ext)
+    })
   }
 
   /** @type {LibraryFileModifiedObject[]} */
@@ -321,6 +406,7 @@ class LibraryItemScanData {
    * @returns {boolean} true if audio file was removed
    */
   checkAudioFileRemoved(existingAudioFile) {
+    if (!existingAudioFile) return true
     if (!this.audioLibraryFilesRemoved.length) return false
     // First check exact path
     if (this.audioLibraryFilesRemoved.some(af => af.metadata.path === existingAudioFile.metadata.path)) {
@@ -328,6 +414,22 @@ class LibraryItemScanData {
     }
     // Fallback to check inode value
     return this.audioLibraryFilesRemoved.some(af => af.ino === existingAudioFile.ino)
+  }
+
+  /**
+   * Check if existing media file (audio or video) on Podcast was removed
+   * @param {Object} existingMediaFile
+   * @returns {boolean} true if media file was removed
+   */
+  checkMediaFileRemoved(existingMediaFile) {
+    if (!existingMediaFile) return true
+    if (!this.mediaLibraryFilesRemoved.length) return false
+    // First check exact path
+    if (this.mediaLibraryFilesRemoved.some(mf => mf.metadata.path === existingMediaFile.metadata.path)) {
+      return true
+    }
+    // Fallback to check inode value
+    return this.mediaLibraryFilesRemoved.some(mf => mf.ino === existingMediaFile.ino)
   }
 
   /**

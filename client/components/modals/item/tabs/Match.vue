@@ -609,6 +609,13 @@ export default {
             updatePayload.tags = this.selectedMatch[key]
           } else if (key === 'itunesId') {
             updatePayload.metadata.itunesId = Number(this.selectedMatch[key])
+          } else if (key === 'feedUrl' && this.isPodcast) {
+            const feedType = this.libraryItem?.media?.feedType || this.mediaMetadata?.feedType
+            const currentFeedUrl = this.mediaMetadata?.feedUrl || this.libraryItem?.media?.feedURL || ''
+            const isYouTube = feedType === 'youtube' || feedType === 'ytdlp' || currentFeedUrl.includes('youtube.com') || currentFeedUrl.includes('youtu.be')
+            if (!isYouTube) {
+              updatePayload.metadata[key] = this.selectedMatch[key]
+            }
           } else {
             updatePayload.metadata[key] = this.selectedMatch[key]
           }

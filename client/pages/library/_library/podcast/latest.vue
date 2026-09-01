@@ -43,6 +43,9 @@
               <div dir="auto" class="flex items-center mb-2">
                 <div class="font-semibold text-sm md:text-base">{{ episode.title }}</div>
                 <widgets-podcast-type-indicator :type="episode.episodeType" />
+                <ui-tooltip v-if="episode.episodeMediaType === 'video' || episode.videoFile" text="Video" direction="top">
+                  <span class="material-symbols text-yellow-400 text-base ml-1.5">videocam</span>
+                </ui-tooltip>
               </div>
 
               <p dir="auto" class="text-sm text-gray-200 mb-4 line-clamp-4" v-html="episode.subtitle || episode.description" />

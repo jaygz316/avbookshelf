@@ -26,22 +26,25 @@
           </div>
           <div class="px-8 py-2">
             <div class="flex items-center font-semibold text-gray-200">
-              <div v-if="episode.season || episode.episode">#</div>
-              <div v-if="episode.season">{{ episode.season }}x</div>
-              <div v-if="episode.episode">{{ episode.episode }}</div>
-            </div>
-            <div class="flex items-center mb-1">
-              <div class="break-words">{{ episode.title }}</div>
-              <widgets-podcast-type-indicator :type="episode.episodeType" />
-            </div>
-            <p v-if="episode.subtitle" class="mb-1 text-sm text-gray-300 line-clamp-2">{{ episode.subtitle }}</p>
-            <div class="flex items-center space-x-2">
-              <!-- published -->
-              <p class="text-xs text-gray-300 w-40">Published {{ episode.publishedAt ? $dateDistanceFromNow(episode.publishedAt) : 'Unknown' }}</p>
-              <!-- duration -->
-              <p v-if="episode.durationSeconds && !isNaN(episode.durationSeconds)" class="text-xs text-gray-300 min-w-28">{{ $strings.LabelDuration }}: {{ $elapsedPretty(episode.durationSeconds) }}</p>
-              <!-- size -->
-              <p v-if="episode.enclosure?.length && !isNaN(episode.enclosure.length) && Number(episode.enclosure.length) > 0" class="text-xs text-gray-300">{{ $strings.LabelSize }}: {{ $bytesPretty(Number(episode.enclosure.length)) }}</p>
+                <div v-if="episode.season || episode.episode">#</div>
+                <div v-if="episode.season">{{ episode.season }}x</div>
+                <div v-if="episode.episode">{{ episode.episode }}</div>
+              </div>
+              <div class="flex items-center mb-1">
+                <div class="break-words">{{ episode.title }}</div>
+                <widgets-podcast-type-indicator :type="episode.episodeType" />
+                <ui-tooltip v-if="episode.isVideo || episode.episodeMediaType === 'video' || (episode.enclosure?.type && episode.enclosure.type.startsWith('video'))" text="Video" direction="top">
+                  <span class="material-symbols text-yellow-400 text-base ml-1.5">videocam</span>
+                </ui-tooltip>
+              </div>
+              <p v-if="episode.subtitle" class="mb-1 text-sm text-gray-300 line-clamp-2">{{ episode.subtitle }}</p>
+              <div class="flex items-center space-x-2">
+                <!-- published -->
+                <p class="text-xs text-gray-300 w-40">Published {{ episode.publishedAt ? $dateDistanceFromNow(episode.publishedAt) : 'Unknown' }}</p>
+                <!-- duration -->
+                <p v-if="episode.durationSeconds && !isNaN(episode.durationSeconds)" class="text-xs text-gray-300 min-w-28">{{ $strings.LabelDuration }}: {{ $elapsedPretty(episode.durationSeconds) }}</p>
+                <!-- size -->
+                <p v-if="episode.enclosure?.length && !isNaN(episode.enclosure.length) && Number(episode.enclosure.length) > 0" class="text-xs text-gray-300">{{ $strings.LabelSize }}: {{ $bytesPretty(Number(episode.enclosure.length)) }}</p>
             </div>
           </div>
         </div>
@@ -87,6 +90,8 @@ export default {
       searchText: null,
       downloadedEpisodeGuidMap: {},
       downloadedEpisodeUrlMap: {},
+      downloadedEpisodeTitleMap: {},
+      downloadedEpisodeNumberMap: {},
       sortDescending: true
     }
   },
@@ -171,6 +176,15 @@ export default {
         return true
       }
       if (this.downloadedEpisodeUrlMap[episode.cleanUrl]) {
+        return true
+      }
+      if (episode.episode) {
+        const key = (episode.season ? `${episode.season}x` : '') + episode.episode
+        if (this.downloadedEpisodeNumberMap[key]) {
+          return true
+        }
+      }
+      if (episode.title && this.downloadedEpisodeTitleMap[episode.title.trim().toLowerCase()]) {
         return true
       }
       return false
@@ -292,10 +306,17 @@ export default {
     updateDownloadedEpisodeMaps() {
       this.downloadedEpisodeGuidMap = {}
       this.downloadedEpisodeUrlMap = {}
+      this.downloadedEpisodeTitleMap = {}
+      this.downloadedEpisodeNumberMap = {}
 
       this.itemEpisodes.forEach((episode) => {
         if (episode.guid) this.downloadedEpisodeGuidMap[episode.guid] = episode.id
         if (episode.enclosure?.url) this.downloadedEpisodeUrlMap[this.getCleanEpisodeUrl(episode.enclosure.url)] = episode.id
+        if (episode.title) this.downloadedEpisodeTitleMap[episode.title.trim().toLowerCase()] = episode.id
+        if (episode.episode) {
+          const key = (episode.season ? `${episode.season}x` : '') + episode.episode
+          this.downloadedEpisodeNumberMap[key] = episode.id
+        }
       })
     },
     updateEpisodeDownloadStatuses() {

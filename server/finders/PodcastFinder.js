@@ -21,6 +21,16 @@ class PodcastFinder {
   }
 
   /**
+   * @param {string|number} id
+   * @returns {Promise<import('../providers/iTunes').iTunesPodcastSearchResult|null>}
+   */
+  async lookup(id) {
+    if (!id) return null
+    Logger.debug(`[iTunes] Looking up podcast with id "${id}"`)
+    return this.iTunesApi.lookupPodcast(id)
+  }
+
+  /**
    * @param {string} term
    * @returns {Promise<string[]>}
    */

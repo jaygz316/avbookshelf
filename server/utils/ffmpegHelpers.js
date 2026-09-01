@@ -98,6 +98,40 @@ async function resizeImage(filePath, outputPath, width, height) {
 module.exports.resizeImage = resizeImage
 
 /**
+ * Extract a single video frame as JPEG using ffmpeg
+ * @param {string} videoPath
+ * @param {string} outputPath
+ * @param {number} [seekSeconds=5]
+ * @returns {Promise<string|boolean>} Resolves to outputPath or false on error
+ */
+async function extractVideoFrame(videoPath, outputPath, seekSeconds = 5) {
+  var dirname = Path.dirname(outputPath)
+  await fs.ensureDir(dirname)
+
+  return new Promise((resolve) => {
+    /** @type {import('../libs/fluentFfmpeg/index').FfmpegCommand} */
+    var ffmpeg = Ffmpeg(videoPath)
+    ffmpeg.seekInput(seekSeconds)
+    ffmpeg.addOption(['-frames:v 1', '-q:v 2'])
+    ffmpeg.output(outputPath)
+
+    ffmpeg.on('start', (cmd) => {
+      Logger.debug(`[FfmpegHelpers] Extract Video Frame Cmd: ${cmd}`)
+    })
+    ffmpeg.on('error', (err, stdout, stderr) => {
+      Logger.error(`[FfmpegHelpers] Extract Video Frame Error ${err}`)
+      resolve(false)
+    })
+    ffmpeg.on('end', () => {
+      Logger.debug(`[FfmpegHelpers] Video Frame Extracted Successfully`)
+      resolve(outputPath)
+    })
+    ffmpeg.run()
+  })
+}
+module.exports.extractVideoFrame = extractVideoFrame
+
+/**
  * Download podcast episode
  * Uses SSRF filter to prevent internal URLs
  *
@@ -152,7 +186,11 @@ module.exports.downloadPodcastEpisode = (podcastEpisodeDownload) => {
     /** @type {import('../libs/fluentFfmpeg/index').FfmpegCommand} */
     const ffmpeg = Ffmpeg(response.data)
     ffmpeg.addOption('-loglevel debug') // Debug logs printed on error
-    ffmpeg.outputOptions('-c:a', 'copy', '-map', '0:a', '-metadata', 'podcast=1')
+    if (podcastEpisodeDownload.isVideo) {
+      ffmpeg.outputOptions('-c', 'copy', '-map', '0', '-metadata', 'podcast=1')
+    } else {
+      ffmpeg.outputOptions('-c:a', 'copy', '-map', '0:a', '-metadata', 'podcast=1')
+    }
 
     /** @type {import('../models/Podcast')} */
     const podcast = podcastEpisodeDownload.libraryItem.media

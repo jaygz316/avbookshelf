@@ -43,6 +43,9 @@
         <div class="w-1/4 px-1">
           <ui-dropdown :label="$strings.LabelPodcastType" v-model="details.type" :items="podcastTypes" small class="max-w-52" @input="handleInputChange" />
         </div>
+        <div class="w-1/4 px-1">
+          <ui-dropdown :label="$strings.LabelMaxVideoDownloadQuality || 'Max Video Download Quality'" v-model="details.maxDownloadResolution" :items="resolutionOptions" small class="max-w-52" @input="handleInputChange" />
+        </div>
       </div>
     </form>
   </div>
@@ -71,7 +74,9 @@ export default {
         itunesArtistId: null,
         explicit: false,
         language: null,
-        type: null
+        type: null,
+        feedType: 'rss',
+        maxDownloadResolution: 'best'
       },
       newTags: []
     }
@@ -107,6 +112,18 @@ export default {
           value: e.value
         }
       })
+    },
+    resolutionOptions() {
+      return [
+        { text: 'Best Compatible (H.264 / AAC) — Recommended', value: 'best_compatible' },
+        { text: '1080p (H.264 Compatible)', value: '1080p_compatible' },
+        { text: '720p (H.264 Compatible)', value: '720p_compatible' },
+        { text: '480p (H.264 Compatible)', value: '480p_compatible' },
+        { text: 'Best Source Quality (AV1 / VP9)', value: 'best_source' },
+        { text: '1080p (Source Quality - AV1/VP9)', value: '1080p_source' },
+        { text: '720p (Source Quality - AV1/VP9)', value: '720p_source' },
+        { text: '480p (Source Quality - AV1/VP9)', value: '480p_source' }
+      ]
     }
   },
   methods: {
@@ -242,6 +259,8 @@ export default {
       this.details.language = this.mediaMetadata.language || ''
       this.details.explicit = !!this.mediaMetadata.explicit
       this.details.type = this.mediaMetadata.type || 'episodic'
+      this.details.feedType = this.mediaMetadata.feedType || this.media.feedType || 'rss'
+      this.details.maxDownloadResolution = this.mediaMetadata.maxDownloadResolution || this.media.maxDownloadResolution || 'best'
 
       this.newTags = [...(this.media.tags || [])]
     },

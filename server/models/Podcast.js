@@ -28,6 +28,8 @@ class Podcast extends Model {
     /** @type {string} */
     this.feedURL
     /** @type {string} */
+    this.feedType
+    /** @type {string} */
     this.imageURL
     /** @type {string} */
     this.description
@@ -53,6 +55,8 @@ class Podcast extends Model {
     this.maxEpisodesToKeep
     /** @type {number} */
     this.maxNewEpisodesToDownload
+    /** @type {string} */
+    this.maxDownloadResolution
     /** @type {string} */
     this.coverPath
     /** @type {string[]} */
@@ -82,8 +86,9 @@ class Podcast extends Model {
     const autoDownloadSchedule = typeof payload.autoDownloadSchedule === 'string' ? payload.autoDownloadSchedule : null
     const genres = Array.isArray(payload.metadata.genres) && payload.metadata.genres.every((g) => typeof g === 'string' && g.length) ? payload.metadata.genres : []
     const tags = Array.isArray(payload.tags) && payload.tags.every((t) => typeof t === 'string' && t.length) ? payload.tags : []
+    const maxDownloadResolution = typeof payload.maxDownloadResolution === 'string' ? payload.maxDownloadResolution : (typeof payload.metadata?.maxDownloadResolution === 'string' ? payload.metadata.maxDownloadResolution : 'best')
 
-    const stringKeys = ['title', 'author', 'releaseDate', 'feedUrl', 'imageUrl', 'description', 'itunesPageUrl', 'itunesId', 'itunesArtistId', 'language', 'type']
+    const stringKeys = ['title', 'author', 'releaseDate', 'feedUrl', 'feedType', 'imageUrl', 'description', 'itunesPageUrl', 'itunesId', 'itunesArtistId', 'language', 'type']
     stringKeys.forEach((key) => {
       if (typeof payload.metadata[key] === 'number') {
         payload.metadata[key] = String(payload.metadata[key])
@@ -100,6 +105,7 @@ class Podcast extends Model {
         author: typeof payload.metadata.author === 'string' ? payload.metadata.author : null,
         releaseDate: typeof payload.metadata.releaseDate === 'string' ? payload.metadata.releaseDate : null,
         feedURL: typeof payload.metadata.feedUrl === 'string' ? payload.metadata.feedUrl : null,
+        feedType: typeof payload.metadata.feedType === 'string' ? payload.metadata.feedType : (payload.feedType || 'rss'),
         imageURL: typeof payload.metadata.imageUrl === 'string' ? payload.metadata.imageUrl : null,
         description,
         itunesPageURL: typeof payload.metadata.itunesPageUrl === 'string' ? payload.metadata.itunesPageUrl : null,
@@ -113,6 +119,7 @@ class Podcast extends Model {
         lastEpisodeCheck: new Date(),
         maxEpisodesToKeep: 0,
         maxNewEpisodesToDownload: 3,
+        maxDownloadResolution: maxDownloadResolution || 'best',
         tags,
         genres
       },
@@ -137,6 +144,10 @@ class Podcast extends Model {
         author: DataTypes.STRING,
         releaseDate: DataTypes.STRING,
         feedURL: DataTypes.STRING,
+        feedType: {
+          type: DataTypes.STRING,
+          defaultValue: 'rss'
+        },
         imageURL: DataTypes.STRING,
         description: DataTypes.TEXT,
         itunesPageURL: DataTypes.STRING,
@@ -151,6 +162,10 @@ class Podcast extends Model {
         lastEpisodeCheck: DataTypes.DATE,
         maxEpisodesToKeep: DataTypes.INTEGER,
         maxNewEpisodesToDownload: DataTypes.INTEGER,
+        maxDownloadResolution: {
+          type: DataTypes.STRING,
+          defaultValue: 'best'
+        },
         coverPath: DataTypes.STRING,
         tags: DataTypes.JSON,
         genres: DataTypes.JSON,
@@ -193,13 +208,15 @@ class Podcast extends Model {
       releaseDate: this.releaseDate,
       genres: this.genres || [],
       feedURL: this.feedURL,
+      feedType: this.feedType || 'rss',
       imageURL: this.imageURL,
       itunesPageURL: this.itunesPageURL,
       itunesId: this.itunesId,
       itunesArtistId: this.itunesArtistId,
       language: this.language,
       explicit: !!this.explicit,
-      podcastType: this.podcastType
+      podcastType: this.podcastType,
+      maxDownloadResolution: this.maxDownloadResolution || 'best'
     }
   }
 
@@ -214,7 +231,7 @@ class Podcast extends Model {
     let hasUpdates = false
 
     if (payload.metadata) {
-      const stringKeys = ['title', 'author', 'releaseDate', 'feedUrl', 'imageUrl', 'description', 'itunesPageUrl', 'itunesId', 'itunesArtistId', 'language', 'type']
+      const stringKeys = ['title', 'author', 'releaseDate', 'feedUrl', 'feedType', 'imageUrl', 'description', 'itunesPageUrl', 'itunesId', 'itunesArtistId', 'language', 'type']
       stringKeys.forEach((key) => {
         // Convert numbers to strings
         if (typeof payload.metadata[key] === 'number') {
@@ -226,6 +243,8 @@ class Podcast extends Model {
           newKey = 'podcastType'
         } else if (key === 'feedUrl') {
           newKey = 'feedURL'
+        } else if (key === 'feedType') {
+          newKey = 'feedType'
         } else if (key === 'imageUrl') {
           newKey = 'imageURL'
         } else if (key === 'itunesPageUrl') {
@@ -282,6 +301,11 @@ class Podcast extends Model {
       this.lastEpisodeCheck = payload.lastEpisodeCheck
       hasUpdates = true
     }
+    const maxDownloadResolution = typeof payload.maxDownloadResolution === 'string' ? payload.maxDownloadResolution : (typeof payload.metadata?.maxDownloadResolution === 'string' ? payload.metadata.maxDownloadResolution : null)
+    if (maxDownloadResolution !== null && maxDownloadResolution !== this.maxDownloadResolution) {
+      this.maxDownloadResolution = maxDownloadResolution
+      hasUpdates = true
+    }
 
     const numberKeys = ['maxEpisodesToKeep', 'maxNewEpisodesToDownload']
     numberKeys.forEach((key) => {
@@ -309,12 +333,13 @@ class Podcast extends Model {
       Logger.error(`[Podcast] checkCanDirectPlay: episode not found`, episodeId)
       return false
     }
-    return supportedMimeTypes.includes(episode.audioFile.mimeType)
+    const mimeType = episode.isVideo ? episode.videoFile?.mimeType : episode.audioFile?.mimeType
+    return supportedMimeTypes.includes(mimeType)
   }
 
   /**
-   * Get the track list to be used in client audio players
-   * AudioTrack is the AudioFile with startOffset and contentUrl
+   * Get the track list to be used in client audio/video players
+   * AudioTrack / VideoTrack is the MediaFile with startOffset and contentUrl
    * Podcast episodes only have one track
    *
    * @param {string} libraryItemId
@@ -328,8 +353,13 @@ class Podcast extends Model {
       return []
     }
 
-    const audioTrack = episode.getAudioTrack(libraryItemId)
-    return [audioTrack]
+    if (episode.isVideo) {
+      const videoTrack = episode.getVideoTrack(libraryItemId)
+      return videoTrack ? [videoTrack] : []
+    } else {
+      const audioTrack = episode.getAudioTrack(libraryItemId)
+      return audioTrack ? [audioTrack] : []
+    }
   }
 
   /**
@@ -391,9 +421,8 @@ class Podcast extends Model {
    * @returns {boolean}
    */
   checkHasEpisodeByFeedEpisode(feedEpisode) {
-    const guid = feedEpisode.guid
-    const url = feedEpisode.enclosure.url
-    return this.podcastEpisodes.some((ep) => ep.checkMatchesGuidOrEnclosureUrl(guid, url))
+    if (!feedEpisode) return false
+    return this.podcastEpisodes.some((ep) => (ep.checkMatchesFeedEpisode ? ep.checkMatchesFeedEpisode(feedEpisode) : ep.checkMatchesGuidOrEnclosureUrl(feedEpisode.guid, feedEpisode.enclosure?.url)))
   }
 
   /**
@@ -407,13 +436,15 @@ class Podcast extends Model {
       releaseDate: this.releaseDate,
       genres: [...(this.genres || [])],
       feedUrl: this.feedURL,
+      feedType: this.feedType || 'rss',
       imageUrl: this.imageURL,
       itunesPageUrl: this.itunesPageURL,
       itunesId: this.itunesId,
       itunesArtistId: this.itunesArtistId,
       explicit: this.explicit,
       language: this.language,
-      type: this.podcastType
+      type: this.podcastType,
+      maxDownloadResolution: this.maxDownloadResolution || 'best'
     }
   }
 
@@ -447,7 +478,8 @@ class Podcast extends Model {
       autoDownloadSchedule: this.autoDownloadSchedule,
       lastEpisodeCheck: this.lastEpisodeCheck?.valueOf() || null,
       maxEpisodesToKeep: this.maxEpisodesToKeep,
-      maxNewEpisodesToDownload: this.maxNewEpisodesToDownload
+      maxNewEpisodesToDownload: this.maxNewEpisodesToDownload,
+      maxDownloadResolution: this.maxDownloadResolution || 'best'
     }
   }
 
@@ -469,6 +501,7 @@ class Podcast extends Model {
       lastEpisodeCheck: this.lastEpisodeCheck?.valueOf() || null,
       maxEpisodesToKeep: this.maxEpisodesToKeep,
       maxNewEpisodesToDownload: this.maxNewEpisodesToDownload,
+      maxDownloadResolution: this.maxDownloadResolution || 'best',
       size: this.size
     }
   }

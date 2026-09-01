@@ -7,7 +7,23 @@
     </template>
     <div ref="wrapper" id="podcast-wrapper" class="p-2 md:p-8 w-full text-sm py-2 rounded-lg bg-bg shadow-lg border border-black-300 relative overflow-x-hidden overflow-y-auto" style="max-height: 80vh">
       <div class="w-full">
-        <p class="text-lg font-semibold mb-2 px-2">{{ $strings.HeaderDetails }}</p>
+        <div class="flex items-center justify-between px-2 mb-2">
+          <p class="text-lg font-semibold">{{ $strings.HeaderDetails }}</p>
+          <span v-if="isYouTubeFeed" class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-600 text-white rounded text-xs font-semibold uppercase tracking-wider">
+            <span class="material-symbols text-sm">smart_display</span> {{ $strings.LabelYouTubeFeed || 'YouTube Feed' }}
+          </span>
+        </div>
+
+        <!-- YouTube to Apple Podcasts Link Section -->
+        <video-podcast-itunes-matcher
+          v-if="isYouTubeFeed"
+          :podcast="podcast"
+          :podcast-feed-data="podcastFeedData"
+          :initial-query="podcast.title"
+          @link="linkItunesPodcast"
+          @unlink="unlinkItunesPodcast"
+          @matched="onEpisodesMatched"
+        />
 
         <div v-if="podcast.imageUrl" class="p-2 w-full">
           <img :src="podcast.imageUrl" class="h-16 w-16 object-contain" />
@@ -50,6 +66,43 @@
             <ui-text-input-with-label v-model="fullPath" :label="`${$strings.LabelPodcast} ${$strings.LabelPath}`" input-class="h-10" readonly />
           </div>
         </div>
+        <div class="flex flex-wrap">
+          <div class="w-full md:w-1/2 p-2">
+            <ui-dropdown v-model="podcast.maxDownloadResolution" :items="resolutionOptions" :disabled="processing" :label="$strings.LabelMaxVideoDownloadQuality || 'Max Video Download Quality'" />
+          </div>
+        </div>
+
+        <!-- Ordered Episodes Preview -->
+        <div v-if="localEpisodes.length" class="px-2 py-2 mt-2">
+          <div class="flex items-center justify-between cursor-pointer py-1.5 border-t border-b border-white/10 hover:text-gray-200" @click="showEpisodePreview = !showEpisodePreview">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols text-sm">{{ showEpisodePreview ? 'expand_less' : 'expand_more' }}</span>
+              <p class="font-semibold text-xs text-gray-300 uppercase tracking-wider">{{ $strings.LabelPreviewEpisodes || 'Preview Ordered Episodes' }} ({{ localEpisodes.length }})</p>
+            </div>
+            <p class="text-xs text-gray-400">{{ showEpisodePreview ? 'Hide' : 'Show' }}</p>
+          </div>
+
+          <div v-if="showEpisodePreview" class="max-h-60 overflow-y-auto mt-2 space-y-1 pr-1">
+            <div
+              v-for="(ep, idx) in localEpisodes"
+              :key="ep.guid || idx"
+              class="flex items-center justify-between p-2 rounded bg-black/20 hover:bg-white/5 text-xs border border-white/5"
+            >
+              <div class="flex items-center gap-2 min-w-0 pr-2">
+                <span v-if="ep.episode || ep.season" class="px-1.5 py-0.5 rounded text-2xs font-bold" :class="ep.itunesMatched ? 'bg-success/20 text-success border border-success/30' : 'bg-primary/30 text-gray-300'">
+                  {{ ep.season ? `S${ep.season} ` : '' }}Ep {{ ep.episode || '?' }}
+                </span>
+                <span v-else class="px-1.5 py-0.5 rounded text-2xs bg-white/10 text-gray-400">#{{ localEpisodes.length - idx }}</span>
+                <p class="font-medium text-gray-200 truncate">{{ ep.title }}</p>
+              </div>
+              <div class="flex items-center gap-3 shrink-0 text-gray-400 text-2xs">
+                <span v-if="ep.durationSeconds" class="whitespace-nowrap">{{ formatDuration(ep.durationSeconds) }}</span>
+                <span v-if="ep.pubDate" class="whitespace-nowrap">{{ ep.pubDate.split('T')[0] || ep.pubDate }}</span>
+                <span v-if="ep.itunesMatched" class="material-symbols text-success text-xs" :title="$strings.LabelMatchedWithApplePodcasts || 'Matched with Apple Podcasts'">check_circle</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="flex items-center py-4 px-2">
         <div class="grow" />
@@ -82,6 +135,17 @@ export default {
       processing: false,
       selectedFolderId: null,
       fullPath: null,
+      searchingItunes: false,
+      itunesSearchQuery: '',
+      itunesSearchResults: [],
+      hasSearchedItunes: false,
+      selectedItunesPodcast: null,
+      matchingEpisodes: false,
+      matchedEpisodesCount: 0,
+      totalEpisodesCount: 0,
+      showEpisodePreview: false,
+      localEpisodes: [],
+      applyItunesMetadata: true,
       podcast: {
         title: '',
         author: '',
@@ -89,6 +153,7 @@ export default {
         releaseDate: '',
         genres: [],
         feedUrl: '',
+        feedType: 'rss',
         feedImageUrl: '',
         itunesPageUrl: '',
         itunesId: '',
@@ -96,7 +161,8 @@ export default {
         autoDownloadEpisodes: false,
         language: '',
         explicit: false,
-        type: ''
+        type: '',
+        maxDownloadResolution: 'best'
       }
     }
   },
@@ -121,6 +187,9 @@ export default {
     },
     title() {
       return this._podcastData.title
+    },
+    isYouTubeFeed() {
+      return this.podcast.feedType === 'youtube' || (this.podcast.feedUrl && (this.podcast.feedUrl.includes('youtube.com') || this.podcast.feedUrl.includes('youtu.be')))
     },
     currentLibrary() {
       return this.$store.getters['libraries/getCurrentLibrary']
@@ -162,6 +231,18 @@ export default {
           value: e.value
         }
       })
+    },
+    resolutionOptions() {
+      return [
+        { text: 'Best Compatible (H.264 / AAC) — Recommended', value: 'best_compatible' },
+        { text: '1080p (H.264 Compatible)', value: '1080p_compatible' },
+        { text: '720p (H.264 Compatible)', value: '720p_compatible' },
+        { text: '480p (H.264 Compatible)', value: '480p_compatible' },
+        { text: 'Best Source Quality (AV1 / VP9)', value: 'best_source' },
+        { text: '1080p (Source Quality - AV1/VP9)', value: '1080p_source' },
+        { text: '720p (Source Quality - AV1/VP9)', value: '720p_source' },
+        { text: '480p (Source Quality - AV1/VP9)', value: '480p_source' }
+      ]
     }
   },
   methods: {
@@ -175,7 +256,50 @@ export default {
       }
       this.fullPath = Path.join(this.selectedFolderPath, this.$sanitizeFilename(this.podcast.title))
     },
+    formatDuration(seconds) {
+      if (!seconds || isNaN(seconds)) return ''
+      const totalSec = Math.round(Number(seconds))
+      const hrs = Math.floor(totalSec / 3600)
+      const mins = Math.floor((totalSec % 3600) / 60)
+      const secs = totalSec % 60
+      if (hrs > 0) return `${hrs}h ${mins}m`
+      if (mins > 0) return `${mins}m ${secs}s`
+      return `${secs}s`
+    },
+    linkItunesPodcast(itunesPodcast) {
+      if (!itunesPodcast) return
+      this.selectedItunesPodcast = itunesPodcast
+      this.podcast.itunesId = String(itunesPodcast.id || '')
+      this.podcast.itunesPageUrl = itunesPodcast.pageUrl || ''
+      this.podcast.itunesArtistId = String(itunesPodcast.artistId || '')
+
+      if (this.applyItunesMetadata) {
+        if (itunesPodcast.artistName) this.podcast.author = itunesPodcast.artistName
+        if (itunesPodcast.genres?.length) this.podcast.genres = [...itunesPodcast.genres]
+        if (itunesPodcast.descriptionPlain) this.podcast.description = itunesPodcast.descriptionPlain
+        if (itunesPodcast.cover) this.podcast.imageUrl = itunesPodcast.cover
+        if (itunesPodcast.releaseDate) this.podcast.releaseDate = itunesPodcast.releaseDate
+        if (itunesPodcast.explicit !== undefined) this.podcast.explicit = !!itunesPodcast.explicit
+      }
+    },
+    unlinkItunesPodcast() {
+      this.selectedItunesPodcast = null
+      this.podcast.itunesId = ''
+      this.podcast.itunesPageUrl = ''
+      this.podcast.itunesArtistId = ''
+      this.matchedEpisodesCount = 0
+      this.localEpisodes = [...(this.podcastFeedData?.episodes || [])]
+    },
+    onEpisodesMatched({ episodes, matchedCount, totalCount }) {
+      this.localEpisodes = episodes
+      this.matchedEpisodesCount = matchedCount
+      this.totalEpisodesCount = totalCount
+      if (this.podcastFeedData) {
+        this.podcastFeedData.episodes = episodes
+      }
+    },
     submit() {
+      const feedType = this.podcast.feedType || (this.isYouTubeFeed ? 'youtube' : 'rss')
       const podcastPayload = {
         path: this.fullPath,
         folderId: this.selectedFolderId,
@@ -188,14 +312,18 @@ export default {
             releaseDate: this.podcast.releaseDate,
             genres: [...this.podcast.genres],
             feedUrl: this.podcast.feedUrl,
+            feedType,
             imageUrl: this.podcast.imageUrl,
             itunesPageUrl: this.podcast.itunesPageUrl,
             itunesId: this.podcast.itunesId,
             itunesArtistId: this.podcast.itunesArtistId,
             language: this.podcast.language,
             explicit: this.podcast.explicit,
-            type: this.podcast.type
+            type: this.podcast.type,
+            maxDownloadResolution: this.podcast.maxDownloadResolution || 'best'
           },
+          feedType,
+          maxDownloadResolution: this.podcast.maxDownloadResolution || 'best',
           autoDownloadEpisodes: this.podcast.autoDownloadEpisodes
         }
       }
@@ -225,6 +353,7 @@ export default {
       this.podcast.releaseDate = this._podcastData.releaseDate || ''
       this.podcast.genres = this._podcastData.genres || this.feedMetadata.categories || []
       this.podcast.feedUrl = this._podcastData.feedUrl || this.feedMetadata.feedUrl || ''
+      this.podcast.feedType = this._podcastData.feedType || this.feedMetadata.feedType || ((this.podcast.feedUrl && (this.podcast.feedUrl.includes('youtube.com') || this.podcast.feedUrl.includes('youtu.be'))) ? 'youtube' : 'rss')
       this.podcast.imageUrl = this._podcastData.cover || this.feedMetadata.image || ''
       this.podcast.itunesPageUrl = this._podcastData.pageUrl || ''
       this.podcast.itunesId = this._podcastData.id || ''
@@ -232,11 +361,24 @@ export default {
       this.podcast.language = this._podcastData.language || this.feedMetadata.language || ''
       this.podcast.autoDownloadEpisodes = false
       this.podcast.type = this._podcastData.type || this.feedMetadata.type || 'episodic'
+      this.podcast.maxDownloadResolution = this._podcastData.maxDownloadResolution || this.feedMetadata.maxDownloadResolution || 'best'
 
       this.podcast.explicit = this._podcastData.explicit || this.feedMetadata.explicit === 'yes' || this.feedMetadata.explicit == 'true'
+      this.localEpisodes = [...(this.podcastFeedData?.episodes || [])]
+      this.selectedItunesPodcast = null
+      this.matchedEpisodesCount = 0
+      this.totalEpisodesCount = this.localEpisodes.length
+
       if (this.folderItems[0]) {
         this.selectedFolderId = this.folderItems[0].value
         this.folderUpdated()
+      }
+
+      if (this.isYouTubeFeed) {
+        this.itunesSearchQuery = this.podcast.title || this.podcast.author || ''
+        if (this.itunesSearchQuery) {
+          this.searchItunes()
+        }
       }
     }
   },

@@ -352,6 +352,10 @@ export default {
       else if (action === this.$hotkeys.AudioPlayer.INCREASE_PLAYBACK_RATE) this.increasePlaybackRate()
       else if (action === this.$hotkeys.AudioPlayer.DECREASE_PLAYBACK_RATE) this.decreasePlaybackRate()
       else if (action === this.$hotkeys.AudioPlayer.CLOSE) this.closePlayer()
+      else if (action === this.$hotkeys.AudioPlayer.TOGGLE_FULLSCREEN) this.$emit('toggleFullscreen')
+      else if (action === this.$hotkeys.AudioPlayer.TOGGLE_PIP) this.$emit('togglePiP')
+      else if (action === this.$hotkeys.AudioPlayer.CYCLE_PLAYER_SIZE) this.$emit('cycleSize')
+      else if (action === this.$hotkeys.AudioPlayer.CYCLE_VIDEO_FIT) this.$emit('cycleVideoFit')
     }
   },
   mounted() {

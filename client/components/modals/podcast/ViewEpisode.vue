@@ -15,7 +15,10 @@
           <p class="text-xs text-gray-300">{{ podcastAuthor }}</p>
         </div>
       </div>
-      <p dir="auto" class="text-lg font-semibold mb-6">{{ title }}</p>
+      <p dir="auto" class="text-lg font-semibold mb-6 flex items-center">
+        <span>{{ title }}</span>
+        <span v-if="isVideo" class="material-symbols text-yellow-400 ml-2 text-xl" aria-hidden="true">videocam</span>
+      </p>
       <div v-if="description" dir="auto" class="default-style less-spacing" @click="handleDescriptionClick" v-html="description" />
       <p v-else class="mb-2">{{ $strings.MessageNoDescription }}</p>
 
@@ -25,19 +28,19 @@
         <div class="grow">
           <p class="font-semibold text-xs mb-1">{{ $strings.LabelFilename }}</p>
           <p class="mb-2 text-xs">
-            {{ audioFileFilename }}
+            {{ mediaFileFilename }}
           </p>
         </div>
         <div class="grow">
           <p class="font-semibold text-xs mb-1">{{ $strings.LabelSize }}</p>
           <p class="mb-2 text-xs">
-            {{ audioFileSize }}
+            {{ mediaFileSize }}
           </p>
         </div>
         <div class="grow">
           <p class="font-semibold text-xs mb-1">{{ $strings.LabelDuration }}</p>
           <p class="mb-2 text-xs">
-            {{ audioFileDuration }}
+            {{ mediaFileDuration }}
           </p>
         </div>
       </div>
@@ -88,16 +91,19 @@ export default {
     podcastAuthor() {
       return this.mediaMetadata.author
     },
-    audioFileFilename() {
-      return this.episode.audioFile?.metadata?.filename || ''
+    isVideo() {
+      return this.episode.episodeMediaType === 'video' || !!this.episode.videoFile
     },
-    audioFileSize() {
-      const size = this.episode.audioFile?.metadata?.size || 0
+    mediaFileFilename() {
+      return this.episode.videoFile?.metadata?.filename || this.episode.audioFile?.metadata?.filename || ''
+    },
+    mediaFileSize() {
+      const size = this.episode.videoFile?.metadata?.size || this.episode.audioFile?.metadata?.size || 0
 
       return this.$bytesPretty(size)
     },
-    audioFileDuration() {
-      const duration = this.episode.duration || 0
+    mediaFileDuration() {
+      const duration = this.episode.duration || this.episode.videoFile?.duration || this.episode.audioFile?.duration || 0
       return this.$elapsedPretty(duration)
     },
     bookCoverAspectRatio() {

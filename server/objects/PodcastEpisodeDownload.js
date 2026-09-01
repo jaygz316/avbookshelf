@@ -25,6 +25,10 @@ class PodcastEpisodeDownload {
     this.startedAt = null
     this.createdAt = null
     this.finishedAt = null
+
+    this.progress = null // 0-100 percent
+    this.progressSpeed = null // e.g. '5.23MiB/s'
+    this.progressEta = null // e.g. '00:05'
   }
 
   toJSONForClient() {
@@ -46,28 +50,42 @@ class PodcastEpisodeDownload {
       episode: this.rssPodcastEpisode?.episode ?? null,
       episodeType: this.rssPodcastEpisode?.episodeType ?? 'full',
       publishedAt: this.rssPodcastEpisode?.publishedAt ?? null,
-      guid: this.rssPodcastEpisode?.guid ?? null
+      guid: this.rssPodcastEpisode?.guid ?? null,
+      progress: this.progress,
+      progressSpeed: this.progressSpeed,
+      progressEta: this.progressEta
     }
   }
 
   get urlFileExtension() {
+    if (!this.url || typeof this.url !== 'string') return ''
     const cleanUrl = this.url.split('?')[0] // Remove query string
     return Path.extname(cleanUrl).substring(1).toLowerCase()
+  }
+  get isVideo() {
+    return this.rssPodcastEpisode?.isVideo || false
   }
   get fileExtension() {
     const extname = this.urlFileExtension
     if (globals.SupportedAudioTypes.includes(extname)) return extname
-    return 'mp3'
+    if (globals.SupportedVideoTypes?.includes(extname)) return extname
+    return this.isVideo ? 'mp4' : 'mp3'
   }
   get enclosureType() {
-    const enclosureType = this.rssPodcastEpisode.enclosure.type
+    const enclosureType = this.rssPodcastEpisode?.enclosure?.type
     return typeof enclosureType === 'string' ? enclosureType : null
   }
   get episodeTitle() {
-    return this.rssPodcastEpisode.title
+    return this.rssPodcastEpisode?.title || ''
   }
   get targetPath() {
+    if (!this.libraryItem?.path || !this.targetFilename) return null
     return filePathToPOSIX(Path.join(this.libraryItem.path, this.targetFilename))
+  }
+  set targetPath(val) {
+    if (val && this.libraryItem?.path) {
+      this.targetFilename = Path.basename(val)
+    }
   }
   get targetRelPath() {
     return this.targetFilename
@@ -76,7 +94,7 @@ class PodcastEpisodeDownload {
     return this.libraryItem?.id || null
   }
   get pubYear() {
-    if (!this.rssPodcastEpisode.publishedAt) return null
+    if (!this.rssPodcastEpisode?.publishedAt) return null
     return new Date(this.rssPodcastEpisode.publishedAt).getFullYear()
   }
 
@@ -85,7 +103,7 @@ class PodcastEpisodeDownload {
    */
   getSanitizedFilename(title) {
     const appendage = this.appendRandomId ? ` (${this.id})` : ''
-    const filename = `${title.trim()}${appendage}.${this.fileExtension}`
+    const filename = `${(title || '').trim()}${appendage}.${this.fileExtension}`
     return sanitizeFilename(filename)
   }
 
@@ -94,7 +112,7 @@ class PodcastEpisodeDownload {
    */
   setAppendRandomId(appendRandomId) {
     this.appendRandomId = appendRandomId
-    this.targetFilename = this.getSanitizedFilename(this.rssPodcastEpisode.title || '')
+    this.targetFilename = this.getSanitizedFilename(this.rssPodcastEpisode?.title || '')
   }
 
   /**
@@ -108,15 +126,19 @@ class PodcastEpisodeDownload {
     this.id = uuidv4()
     this.rssPodcastEpisode = rssPodcastEpisode
 
-    const url = rssPodcastEpisode.enclosure.url
-    if (decodeURIComponent(url) !== url) {
-      // Already encoded
-      this.url = url
+    const url = rssPodcastEpisode?.enclosure?.url || rssPodcastEpisode?.url || ''
+    if (url && typeof url === 'string') {
+      if (decodeURIComponent(url) !== url) {
+        // Already encoded
+        this.url = url
+      } else {
+        this.url = encodeURI(url)
+      }
     } else {
-      this.url = encodeURI(url)
+      this.url = ''
     }
 
-    this.targetFilename = this.getSanitizedFilename(this.rssPodcastEpisode.title || '')
+    this.targetFilename = this.getSanitizedFilename(this.rssPodcastEpisode?.title || '')
 
     this.libraryItem = libraryItem
     this.isAutoDownload = isAutoDownload
@@ -128,6 +150,12 @@ class PodcastEpisodeDownload {
     this.finishedAt = Date.now()
     this.isFinished = true
     this.failed = !success
+  }
+
+  setProgress(percent, speed, eta) {
+    this.progress = percent
+    this.progressSpeed = speed || null
+    this.progressEta = eta || null
   }
 }
 module.exports = PodcastEpisodeDownload

@@ -5,13 +5,19 @@ const { getTitleIgnorePrefix } = require('../utils/index')
 const AudioFileScanner = require('./AudioFileScanner')
 const Database = require('../Database')
 const { filePathToPOSIX, getFileTimestampsWithIno } = require('../utils/fileUtils')
+const Logger = require('../Logger')
 const AudioFile = require('../objects/files/AudioFile')
+const VideoFile = require('../objects/files/VideoFile')
+const globals = require('../utils/globals')
+const prober = require('../utils/prober')
 const CoverManager = require('../managers/CoverManager')
 const LibraryFile = require('../objects/files/LibraryFile')
 const fsExtra = require('../libs/fsExtra')
 const PodcastEpisode = require('../models/PodcastEpisode')
 const AbsMetadataFileScanner = require('./AbsMetadataFileScanner')
 const htmlSanitizer = require('../utils/htmlSanitizer')
+const { extractVideoFrame } = require('../utils/ffmpegHelpers')
+const { videoScanner } = require('../video')
 
 /**
  * Metadata for podcasts pulled from files
@@ -34,6 +40,15 @@ const htmlSanitizer = require('../utils/htmlSanitizer')
 
 class PodcastScanner {
   constructor() {}
+
+  /**
+   * Scan a video library file and return VideoFile and probe data
+   * @param {import('../objects/files/LibraryFile')} libraryFile
+   * @returns {Promise<{videoFile: VideoFile, probeData: Object}|null>}
+   */
+  async scanVideoLibraryFile(libraryFile) {
+    return videoScanner.scanVideoLibraryFile(libraryFile)
+  }
 
   /**
    * @param {import('../models/LibraryItem')} existingLibraryItem
@@ -61,12 +76,15 @@ class PodcastScanner {
     // Track episode add/remove/update so item_updated includes the current episode list
     let hasEpisodeChanges = false
 
-    if (libraryItemData.hasAudioFileChanges || libraryItemData.audioLibraryFiles.length !== existingPodcastEpisodes.length) {
+    const hasMediaFileChanges = libraryItemData.hasMediaFileChanges || (libraryItemData.mediaLibraryFiles.length !== existingPodcastEpisodes.length)
+
+    if (hasMediaFileChanges) {
       // Filter out and destroy episodes that were removed.
       // filter() returns a new array — reassign to media.podcastEpisodes before emit.
       const episodesToRemove = []
       existingPodcastEpisodes = existingPodcastEpisodes.filter((ep) => {
-        if (libraryItemData.checkAudioFileRemoved(ep.audioFile)) {
+        const fileToCheck = ep.audioFile || ep.videoFile
+        if (libraryItemData.checkMediaFileRemoved(fileToCheck)) {
           episodesToRemove.push(ep)
           return false
         }
@@ -91,7 +109,7 @@ class PodcastScanner {
         await Promise.all(
           episodesToRemove.map(async (ep) => {
             await ep.destroy()
-            libraryScan.addLog(LogLevel.INFO, `Podcast episode "${ep.title}" audio file was removed`)
+            libraryScan.addLog(LogLevel.INFO, `Podcast episode "${ep.title}" media file was removed`)
           })
         )
       }
@@ -105,6 +123,7 @@ class PodcastScanner {
         )
 
         for (const podcastEpisode of existingPodcastEpisodes) {
+          if (!podcastEpisode.audioFile) continue
           let matchedScannedAudioFile = scannedAudioFiles.find((saf) => saf.metadata.path === podcastEpisode.audioFile.metadata.path)
           if (!matchedScannedAudioFile) {
             matchedScannedAudioFile = scannedAudioFiles.find((saf) => saf.ino === podcastEpisode.audioFile.ino)
@@ -131,6 +150,11 @@ class PodcastScanner {
         }
       }
 
+      // Update video files that were modified
+      if (await videoScanner.handleModifiedVideoFiles(existingLibraryItem, libraryItemData, existingPodcastEpisodes, AudioFileScanner, libraryScan)) {
+        hasEpisodeChanges = true
+      }
+
       // Add new audio files scanned in
       if (libraryItemData.audioLibraryFilesAdded.length) {
         const scannedAudioFiles = await AudioFileScanner.executeMediaFileScans(existingLibraryItem.mediaType, libraryItemData, libraryItemData.audioLibraryFilesAdded)
@@ -141,26 +165,65 @@ class PodcastScanner {
       for (const newAudioFile of newAudioFiles) {
         // Podcast episode audio files always have index 1
         newAudioFile.index = 1
+        const audioFilenameNoExt = newAudioFile.metadata?.filenameNoExt || Path.parse(newAudioFile.metadata?.filename || '').name
+        const audioTitle = newAudioFile.metaTags?.tagTitle || audioFilenameNoExt
 
-        const newEpisode = {
-          title: newAudioFile.metaTags.tagTitle || newAudioFile.metadata.filenameNoExt,
-          subtitle: null,
-          season: null,
-          episode: null,
-          episodeType: null,
-          pubDate: null,
-          publishedAt: null,
-          description: null,
-          audioFile: newAudioFile.toJSON(),
-          chapters: newAudioFile.chapters || [],
-          podcastId: media.id
+        // Check if an existing episode (e.g. video episode) matches this audio file
+        const matchingExistingEpisode = existingPodcastEpisodes.find((ep) => {
+          if (ep.audioFile && (ep.audioFile.ino === newAudioFile.ino || ep.audioFile.metadata?.path === newAudioFile.metadata?.path)) {
+            return true
+          }
+          if (ep.videoFile) {
+            const epVideoFilenameNoExt = ep.videoFile.metadata?.filenameNoExt || Path.parse(ep.videoFile.metadata?.filename || '').name
+            if (audioFilenameNoExt && epVideoFilenameNoExt && audioFilenameNoExt.toLowerCase() === epVideoFilenameNoExt.toLowerCase()) {
+              return true
+            }
+          }
+          if (ep.title && audioTitle && ep.title.trim().toLowerCase() === audioTitle.trim().toLowerCase()) {
+            return true
+          }
+          return false
+        })
+
+        if (matchingExistingEpisode) {
+          matchingExistingEpisode.audioFile = newAudioFile.toJSON()
+          matchingExistingEpisode.changed('audioFile', true)
+          if (!matchingExistingEpisode.chapters?.length && newAudioFile.chapters?.length) {
+            matchingExistingEpisode.chapters = newAudioFile.chapters
+            matchingExistingEpisode.changed('chapters', true)
+          }
+          AudioFileScanner.setPodcastEpisodeMetadataFromAudioMetaTags(matchingExistingEpisode, libraryScan)
+          libraryScan.addLog(LogLevel.INFO, `Updated existing podcast episode "${matchingExistingEpisode.title}" with audio file`)
+          await matchingExistingEpisode.save()
+          hasEpisodeChanges = true
+        } else {
+          const newEpisode = {
+            title: audioTitle,
+            subtitle: null,
+            season: null,
+            episode: null,
+            episodeType: null,
+            pubDate: null,
+            publishedAt: null,
+            description: null,
+            audioFile: newAudioFile.toJSON(),
+            videoFile: null,
+            episodeMediaType: 'audio',
+            chapters: newAudioFile.chapters || [],
+            podcastId: media.id
+          }
+          const newPodcastEpisode = Database.podcastEpisodeModel.build(newEpisode)
+          // Set metadata and save new episode
+          AudioFileScanner.setPodcastEpisodeMetadataFromAudioMetaTags(newPodcastEpisode, libraryScan)
+          libraryScan.addLog(LogLevel.INFO, `New Podcast episode "${newPodcastEpisode.title}" added`)
+          await newPodcastEpisode.save()
+          existingPodcastEpisodes.push(newPodcastEpisode)
+          hasEpisodeChanges = true
         }
-        const newPodcastEpisode = Database.podcastEpisodeModel.build(newEpisode)
-        // Set metadata and save new episode
-        AudioFileScanner.setPodcastEpisodeMetadataFromAudioMetaTags(newPodcastEpisode, libraryScan)
-        libraryScan.addLog(LogLevel.INFO, `New Podcast episode "${newPodcastEpisode.title}" added`)
-        await newPodcastEpisode.save()
-        existingPodcastEpisodes.push(newPodcastEpisode)
+      }
+
+      // Add new video files scanned in
+      if (await videoScanner.handleAddedVideoFiles(existingLibraryItem, libraryItemData, existingPodcastEpisodes, media, AudioFileScanner, libraryScan)) {
         hasEpisodeChanges = true
       }
     }
@@ -196,10 +259,16 @@ class PodcastScanner {
 
     // Check if cover is not set and image files were found
     if (!media.coverPath && libraryItemData.imageLibraryFiles.length) {
-      // Prefer using a cover image with the name "cover" otherwise use the first image
+      // Prefer using a cover image with the name "cover" otherwise use the first non-thumbnail image
       const coverMatch = libraryItemData.imageLibraryFiles.find((iFile) => /\/cover\.[^.\/]*$/.test(iFile.metadata.path))
-      media.coverPath = coverMatch?.metadata.path || libraryItemData.imageLibraryFiles[0].metadata.path
-      hasMediaChanges = true
+      const nonThumbImages = libraryItemData.imageLibraryFiles.filter((iFile) => !iFile.metadata?.filenameNoExt?.endsWith('-thumb'))
+      if (coverMatch) {
+        media.coverPath = coverMatch.metadata.path
+        hasMediaChanges = true
+      } else if (nonThumbImages.length) {
+        media.coverPath = nonThumbImages[0].metadata.path
+        hasMediaChanges = true
+      }
     }
 
     const podcastMetadata = await this.getPodcastMetadataFromScanData(existingPodcastEpisodes, libraryItemData, libraryScan, existingLibraryItem.id)
@@ -233,12 +302,14 @@ class PodcastScanner {
 
     // If no cover then extract cover from audio file if available
     if (!media.coverPath && existingPodcastEpisodes.length) {
-      const audioFiles = existingPodcastEpisodes.map((ep) => ep.audioFile)
-      const extractedCoverPath = await CoverManager.saveEmbeddedCoverArt(audioFiles, existingLibraryItem.id, existingLibraryItem.path)
-      if (extractedCoverPath) {
-        libraryScan.addLog(LogLevel.DEBUG, `Updating podcast "${podcastMetadata.title}" extracted embedded cover art from audio file to path "${extractedCoverPath}"`)
-        media.coverPath = extractedCoverPath
-        hasMediaChanges = true
+      const audioFiles = existingPodcastEpisodes.map((ep) => ep.audioFile).filter(Boolean)
+      if (audioFiles.length) {
+        const extractedCoverPath = await CoverManager.saveEmbeddedCoverArt(audioFiles, existingLibraryItem.id, existingLibraryItem.path)
+        if (extractedCoverPath) {
+          libraryScan.addLog(LogLevel.DEBUG, `Updating podcast "${podcastMetadata.title}" extracted embedded cover art from audio file to path "${extractedCoverPath}"`)
+          media.coverPath = extractedCoverPath
+          hasMediaChanges = true
+        }
       }
     }
 
@@ -275,9 +346,17 @@ class PodcastScanner {
     // Scan audio files found
     let scannedAudioFiles = await AudioFileScanner.executeMediaFileScans(libraryItemData.mediaType, libraryItemData, libraryItemData.audioLibraryFiles)
 
-    // Do not add library items that have no valid audio files
-    if (!scannedAudioFiles.length) {
-      libraryScan.addLog(LogLevel.WARN, `Library item at path "${libraryItemData.relPath}" has no audio files - ignoring`)
+    // Scan video files found
+    const videoLibraryFiles = libraryItemData.videoLibraryFiles || libraryItemData.libraryFiles.filter(lf => globals.SupportedVideoTypes.includes(lf.metadata.ext?.slice(1).toLowerCase() || ''))
+    const scannedVideoFiles = []
+    for (const vf of videoLibraryFiles) {
+      const res = await this.scanVideoLibraryFile(vf)
+      if (res) scannedVideoFiles.push(res)
+    }
+
+    // Do not add library items that have no valid audio or video files
+    if (!scannedAudioFiles.length && !scannedVideoFiles.length) {
+      libraryScan.addLog(LogLevel.WARN, `Library item at path "${libraryItemData.relPath}" has no audio or video files - ignoring`)
       return null
     }
 
@@ -298,6 +377,8 @@ class PodcastScanner {
         publishedAt: null,
         description: null,
         audioFile: audioFile.toJSON(),
+        videoFile: null,
+        episodeMediaType: 'audio',
         chapters: audioFile.chapters || []
       }
 
@@ -307,14 +388,22 @@ class PodcastScanner {
       newPodcastEpisodes.push(newEpisode)
     }
 
+    // Create podcast episodes from video files
+    videoScanner.processScannedVideoFilesForNewItem(libraryItemData, scannedVideoFiles, newPodcastEpisodes, AudioFileScanner, libraryScan)
+
     const podcastMetadata = await this.getPodcastMetadataFromScanData(newPodcastEpisodes, libraryItemData, libraryScan)
     podcastMetadata.explicit = !!podcastMetadata.explicit // Ensure boolean
 
     // Set cover image from library file
     if (libraryItemData.imageLibraryFiles.length) {
-      // Prefer using a cover image with the name "cover" otherwise use the first image
+      // Prefer using a cover image with the name "cover" otherwise use the first non-thumbnail image
       const coverMatch = libraryItemData.imageLibraryFiles.find((iFile) => /\/cover\.[^.\/]*$/.test(iFile.metadata.path))
-      podcastMetadata.coverPath = coverMatch?.metadata.path || libraryItemData.imageLibraryFiles[0].metadata.path
+      const nonThumbImages = libraryItemData.imageLibraryFiles.filter((iFile) => !iFile.metadata?.filenameNoExt?.endsWith('-thumb'))
+      if (coverMatch) {
+        podcastMetadata.coverPath = coverMatch.metadata.path
+      } else if (nonThumbImages.length) {
+        podcastMetadata.coverPath = nonThumbImages[0].metadata.path
+      }
     }
 
     // Set default podcastType to episodic
@@ -401,7 +490,8 @@ class PodcastScanner {
 
     // Use audio meta tags
     if (podcastEpisodes.length) {
-      AudioFileScanner.setPodcastMetadataFromAudioMetaTags(podcastEpisodes[0].audioFile, podcastMetadata, libraryScan)
+      const mediaFile = podcastEpisodes[0].audioFile || podcastEpisodes[0].videoFile
+      AudioFileScanner.setPodcastMetadataFromAudioMetaTags(mediaFile, podcastMetadata, libraryScan)
     }
 
     // Use metadata.json file

@@ -1,0 +1,63 @@
+const { expect } = require('chai')
+const PodcastEpisodeDownload = require('../../../server/objects/PodcastEpisodeDownload')
+
+describe('PodcastEpisodeDownload', () => {
+  it('should safely handle missing or undefined url without throwing', () => {
+    const dl = new PodcastEpisodeDownload()
+    expect(dl.urlFileExtension).to.equal('')
+    expect(dl.fileExtension).to.equal('mp3')
+
+    const mockItem = { id: 'lib-1', path: '/media/podcasts/test' }
+    const mockEpisode = {
+      title: 'Episode Without URL',
+      enclosure: null
+    }
+
+    expect(() => {
+      dl.setData(mockEpisode, mockItem, false, 'lib-1')
+    }).to.not.throw()
+
+    expect(dl.url).to.equal('')
+    expect(dl.urlFileExtension).to.equal('')
+    expect(dl.fileExtension).to.equal('mp3')
+    expect(dl.targetFilename).to.equal('Episode Without URL.mp3')
+  })
+
+  it('should safely handle enclosure with undefined url and isVideo = true', () => {
+    const dl = new PodcastEpisodeDownload()
+    const mockItem = { id: 'lib-1', path: '/media/podcasts/test' }
+    const mockEpisode = {
+      title: 'Video Episode Without URL',
+      isVideo: true,
+      enclosure: { url: undefined, type: 'video/mp4' }
+    }
+
+    expect(() => {
+      dl.setData(mockEpisode, mockItem, false, 'lib-1')
+    }).to.not.throw()
+
+    expect(dl.url).to.equal('')
+    expect(dl.isVideo).to.be.true
+    expect(dl.fileExtension).to.equal('mp4')
+    expect(dl.targetFilename).to.equal('Video Episode Without URL.mp4')
+  })
+
+  it('should handle standard video enclosure with valid URL', () => {
+    const dl = new PodcastEpisodeDownload()
+    const mockItem = { id: 'lib-1', path: '/media/podcasts/test' }
+    const mockEpisode = {
+      title: 'Valid Video Episode',
+      isVideo: true,
+      publishedAt: 1700000000000,
+      enclosure: { url: 'https://youtube.com/watch?v=12345', type: 'video/mp4' }
+    }
+
+    dl.setData(mockEpisode, mockItem, false, 'lib-1')
+    expect(dl.url).to.equal('https://youtube.com/watch?v=12345')
+    expect(dl.isVideo).to.be.true
+    expect(dl.fileExtension).to.equal('mp4')
+    expect(dl.targetFilename).to.equal('Valid Video Episode.mp4')
+    expect(dl.targetPath).to.equal('/media/podcasts/test/Valid Video Episode.mp4')
+    expect(dl.pubYear).to.equal(new Date(1700000000000).getFullYear())
+  })
+})

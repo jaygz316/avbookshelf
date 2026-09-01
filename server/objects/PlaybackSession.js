@@ -38,6 +38,7 @@ class PlaybackSession {
     // Not saved in DB
     this.lastSave = 0
     this.audioTracks = []
+    this.videoTracks = []
     this.stream = null
     // Used for share sessions
     this.shareSessionId = null
@@ -110,6 +111,7 @@ class PlaybackSession {
       startedAt: this.startedAt,
       updatedAt: this.updatedAt,
       audioTracks: this.audioTracks.map((at) => at.toJSON?.() || { ...at }),
+      videoTracks: this.videoTracks.map((vt) => vt.toJSON?.() || { ...vt }),
       libraryItem: libraryItem?.toOldJSONExpanded() || null,
       coverAspectRatio: this.coverAspectRatio !== null ? this.coverAspectRatio : undefined // Used for share sessions
     }

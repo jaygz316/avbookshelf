@@ -1,7 +1,7 @@
 const axios = require('axios')
 const ssrfFilter = require('ssrf-req-filter')
 const Logger = require('../Logger')
-const { xmlToJSON, timestampToSeconds } = require('./index')
+const { xmlToJSON, timestampToSeconds, levenshteinSimilarity } = require('./index')
 const htmlSanitizer = require('../utils/htmlSanitizer')
 const Fuse = require('../libs/fusejs')
 
@@ -156,8 +156,10 @@ function extractEpisodeData(item) {
 
   if (item.enclosure?.[0]?.['$']?.url) {
     enclosure = item.enclosure[0]['$']
-  } else if (item['media:content']?.find((c) => c?.['$']?.url && (c?.['$']?.type ?? '').startsWith('audio'))) {
-    enclosure = item['media:content'].find((c) => (c['$']?.type ?? '').startsWith('audio'))['$']
+  } else if (item['media:content']?.find((c) => c?.['$']?.url && ((c?.['$']?.type ?? '').startsWith('audio') || (c?.['$']?.type ?? '').startsWith('video')))) {
+    const videoContent = item['media:content'].find((c) => (c['$']?.type ?? '').startsWith('video'))
+    const audioContent = item['media:content'].find((c) => (c['$']?.type ?? '').startsWith('audio'))
+    enclosure = (videoContent || audioContent)['$']
   } else {
     Logger.error(`[podcastUtils] Invalid podcast episode data`)
     return null
@@ -267,6 +269,8 @@ function extractEpisodeData(item) {
 function cleanEpisodeData(data) {
   const pubJsDate = data.pubDate ? new Date(data.pubDate) : null
   const publishedAt = pubJsDate && !isNaN(pubJsDate) ? pubJsDate.valueOf() : null
+  const enclosureType = data.enclosure?.type || ''
+  const isVideo = enclosureType.startsWith('video/')
 
   return {
     title: data.title,
@@ -284,6 +288,7 @@ function cleanEpisodeData(data) {
     publishedAt,
     enclosure: data.enclosure,
     guid: data.guid || null,
+    isVideo,
     chaptersUrl: data.chaptersUrl || null,
     chaptersType: data.chaptersType || null,
     chapters: data.chapters || []
@@ -454,3 +459,15 @@ module.exports.findMatchingEpisodesInFeed = (feed, searchTitle, threshold = 0.4)
   })
   return matches
 }
+
+module.exports.extractEpisodeData = extractEpisodeData
+module.exports.cleanEpisodeData = cleanEpisodeData
+
+// Video episode extraction and matching logic (modular subsystem)
+const { videoEpisodeMatcher } = require('../video')
+
+module.exports.extractEpisodeNumbers = videoEpisodeMatcher.extractEpisodeNumbers
+module.exports.cleanTitleForMatching = videoEpisodeMatcher.cleanTitleForMatching
+module.exports.scoreEpisodeMatch = videoEpisodeMatcher.scoreEpisodeMatch
+module.exports.matchYouTubeEpisodesWithItunesFeed = videoEpisodeMatcher.matchYouTubeEpisodesWithItunesFeed
+
