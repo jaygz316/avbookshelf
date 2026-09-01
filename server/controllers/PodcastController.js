@@ -546,7 +546,7 @@ class PodcastController {
         videoInfo.start_time
       let { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
       if (!publishedAt || !pubDate) {
-        const fallback = parseDateToTimestampAndString(videoInfo.title || videoInfo.description || '')
+        const fallback = parseDateToTimestampAndString(videoInfo.title || '')
         if (fallback.publishedAt) {
           publishedAt = publishedAt || fallback.publishedAt
           pubDate = pubDate || fallback.pubDate

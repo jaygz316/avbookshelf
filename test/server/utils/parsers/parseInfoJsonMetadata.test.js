@@ -74,6 +74,24 @@ describe('parseInfoJsonMetadata', () => {
       expect(res2.publishedAt).to.equal(Date.UTC(2024, 7, 15))
     })
 
+    it('should not parse episode numbers or arbitrary words as ancient/invalid years', () => {
+      const titles = [
+        'Episode 300',
+        'Episode 324',
+        'Episode 1',
+        '#2001',
+        '300',
+        '25',
+        '1',
+        'Huberman Lab Podcast #120'
+      ]
+      for (const title of titles) {
+        const res = parseDateToTimestampAndString(title)
+        expect(res.publishedAt).to.be.null
+        expect(res.pubDate).to.equal('')
+      }
+    })
+
     it('should return null and empty string for invalid dates', () => {
       const res1 = parseDateToTimestampAndString(null)
       expect(res1.publishedAt).to.be.null

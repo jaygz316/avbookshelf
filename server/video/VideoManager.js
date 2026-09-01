@@ -392,10 +392,9 @@ class VideoManager {
               entry.start_time
             let { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
 
-            // If date is still missing, attempt to extract date from entry title or description
+            // If date is still missing, attempt to extract a strict date from entry title
             if (!publishedAt || !pubDate) {
-              const fallbackDate = entry.title || entry.description || ''
-              const parsedFallback = parseDateToTimestampAndString(fallbackDate)
+              const parsedFallback = parseDateToTimestampAndString(entry.title || '')
               if (parsedFallback.publishedAt) {
                 publishedAt = publishedAt || parsedFallback.publishedAt
                 pubDate = pubDate || parsedFallback.pubDate
