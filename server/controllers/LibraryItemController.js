@@ -435,7 +435,38 @@ class LibraryItemController {
    * @param {Response} res
    */
   async getEpisodeThumbnail(req, res) {
-    return libraryItemController.getCover(req, res)
+    const libraryItemId = req.params.id
+    const episodeId = req.params.episodeId
+    if (!libraryItemId) {
+      return res.sendStatus(400)
+    }
+
+    try {
+      if (episodeId) {
+        const libraryItem = await Database.libraryItemModel.getExpandedById(libraryItemId)
+        if (libraryItem?.media?.episodes?.length) {
+          const episode = libraryItem.media.episodes.find((e) => e.id === episodeId)
+          if (episode) {
+            const thumbRel = episode.videoFile?.thumbnail || episode.thumbnail
+            if (thumbRel && libraryItem.path) {
+              const fullThumbPath = Path.join(libraryItem.path, thumbRel)
+              if (await fs.pathExists(fullThumbPath)) {
+                return res.sendFile(fullThumbPath)
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      Logger.error(`[LibraryItemController] getEpisodeThumbnail error`, err)
+    }
+
+    const options = {
+      format: req.query.format || (reqSupportsWebp(req) ? 'webp' : 'jpeg'),
+      height: clampPositiveInt(req.query.height ? parseInt(req.query.height) : null, 4096),
+      width: clampPositiveInt(req.query.width ? parseInt(req.query.width) : null, 4096)
+    }
+    return CacheManager.handleCoverCache(res, libraryItemId, options)
   }
 
   /**
