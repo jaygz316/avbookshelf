@@ -32,7 +32,7 @@
           <td dir="auto">
             <div class="flex items-center">
               <span>{{ episode.title }}</span>
-              <ui-tooltip v-if="episode.episodeMediaType === 'video' || episode.videoFile" text="Video" direction="top">
+              <ui-tooltip v-if="isVideoEpisode(episode)" text="Video" direction="top">
                 <span class="material-symbols text-yellow-400 text-base ml-1.5">videocam</span>
               </ui-tooltip>
             </div>
@@ -50,6 +50,8 @@
 </template>
 
 <script>
+import { isVideoEpisode } from '@/video/videoUtils'
+
 export default {
   props: {
     libraryItem: {
@@ -144,6 +146,9 @@ export default {
     },
     setLastEpisodeCheckInput() {
       this.lastEpisodeCheckInput = this.lastEpisodeCheck ? this.$formatDate(this.lastEpisodeCheck, "yyyy-MM-dd'T'HH:mm") : null
+    },
+    isVideoEpisode(episode) {
+      return isVideoEpisode(episode)
     }
   },
   mounted() {

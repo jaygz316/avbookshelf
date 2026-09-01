@@ -175,48 +175,57 @@ export default {
           return episodeProgress && !episodeProgress.isFinished
         })
         .sort((a, b) => {
-          // Swap values if sort descending
+          // If sorting by publishedAt
+          if (this.sortKey === 'publishedAt') {
+            const aPub = a.publishedAt ? Number(a.publishedAt) : null
+            const bPub = b.publishedAt ? Number(b.publishedAt) : null
+
+            if (aPub && bPub) {
+              return this.sortDesc ? bPub - aPub : aPub - bPub
+            }
+            if (aPub && !bPub) return -1
+            if (!aPub && bPub) return 1
+            return 0
+          }
+
+          let aItem = a
+          let bItem = b
           if (this.sortDesc) {
-            const temp = a
-            a = b
-            b = temp
+            aItem = b
+            bItem = a
           }
 
           let aValue
           let bValue
 
-          if (this.sortKey.includes('.')) {
+          if (this.sortKey === 'audioFile.metadata.filename') {
+            aValue = aItem.audioFile?.metadata?.filename || aItem.videoFile?.metadata?.filename || ''
+            bValue = bItem.audioFile?.metadata?.filename || bItem.videoFile?.metadata?.filename || ''
+          } else if (this.sortKey.includes('.')) {
             const getNestedValue = (ob, s) => s.split('.').reduce((o, k) => o?.[k], ob)
-            aValue = getNestedValue(a, this.sortKey)
-            bValue = getNestedValue(b, this.sortKey)
+            aValue = getNestedValue(aItem, this.sortKey)
+            bValue = getNestedValue(bItem, this.sortKey)
           } else {
-            aValue = a[this.sortKey]
-            bValue = b[this.sortKey]
+            aValue = aItem[this.sortKey]
+            bValue = bItem[this.sortKey]
           }
 
-          // Sort episodes with no pub date as the oldest
-          if (this.sortKey === 'publishedAt') {
-            if (!aValue) aValue = Number.MAX_VALUE
-            if (!bValue) bValue = Number.MAX_VALUE
-          }
-
-          const primaryCompare = String(aValue).localeCompare(String(bValue), undefined, { numeric: true, sensitivity: 'base' })
-          if (primaryCompare !== 0 || this.sortKey === 'publishedAt') return primaryCompare
+          const primaryCompare = String(aValue || '').localeCompare(String(bValue || ''), undefined, { numeric: true, sensitivity: 'base' })
+          if (primaryCompare !== 0) return primaryCompare
 
           // When sorting by season, secondary sort is by episode number
           if (this.sortKey === 'season') {
-            const aEpisode = a.episode || ''
-            const bEpisode = b.episode || ''
+            const aEpisode = aItem.episode || ''
+            const bEpisode = bItem.episode || ''
 
             const secondaryCompare = String(aEpisode).localeCompare(String(bEpisode), undefined, { numeric: true, sensitivity: 'base' })
             if (secondaryCompare !== 0) return secondaryCompare
           }
 
           // Final sort by publishedAt
-          let aPubDate = a.publishedAt || Number.MAX_VALUE
-          let bPubDate = b.publishedAt || Number.MAX_VALUE
-
-          return String(aPubDate).localeCompare(String(bPubDate), undefined, { numeric: true, sensitivity: 'base' })
+          const aPub = aItem.publishedAt ? Number(aItem.publishedAt) : 0
+          const bPub = bItem.publishedAt ? Number(bItem.publishedAt) : 0
+          return aPub - bPub
         })
     },
     episodesList() {

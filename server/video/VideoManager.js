@@ -4,11 +4,23 @@ const Logger = require('../Logger')
 const which = require('../utils/which')
 const { extractEpisodeNumbers } = require('./VideoEpisodeMatcher')
 const { VideoMimeType } = require('../utils/constants')
+const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
 
 class VideoManager {
   constructor() {
     this.ytDlpPath = null
     this.isAvailable = false
+  }
+
+  /**
+   * Parse upload date string or number to timestamp in milliseconds
+   * @param {string|number} uploadDate
+   * @param {string|number} [timestamp]
+   * @returns {number|null}
+   */
+  parseUploadDate(uploadDate, timestamp = null) {
+    const { publishedAt } = parseDateToTimestampAndString(uploadDate, timestamp)
+    return publishedAt
   }
 
   /**
@@ -83,6 +95,8 @@ class VideoManager {
       format,
       '--merge-output-format',
       'mp4',
+      '--embed-metadata',
+      '--embed-chapters',
       '--write-info-json',
       '--write-thumbnail',
       '--convert-thumbnails',
@@ -92,6 +106,8 @@ class VideoManager {
       '--print',
       'after_move:filepath',
       '--progress',
+      '--progress-template',
+      'download:PROGRESS:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s',
       '--newline',
       url
     ]
@@ -100,30 +116,85 @@ class VideoManager {
       const proc = childProcess.spawn(this.ytDlpPath, args)
 
       let stdoutBuffer = ''
+      let lineBuffer = ''
+      let stderrBuffer = ''
+
+      const processLine = (rawLine) => {
+        const line = rawLine.replace(/\r/g, '').trim()
+        if (!line) return
+
+        // 1. Check for structured PROGRESS template
+        const progressMatch = line.match(/^PROGRESS:\s*([^|]*)\|([^|]*)\|([^|]*)(?:\|([^|]*)\|([^|]*)\|([^|]*))?/)
+        if (progressMatch) {
+          const rawPct = progressMatch[1].trim()
+          const rawSpeed = progressMatch[2].trim()
+          const rawEta = progressMatch[3].trim()
+
+          let percent = null
+          if (rawPct && rawPct !== 'NA' && rawPct !== 'Unknown') {
+            const parsed = parseFloat(rawPct.replace('%', ''))
+            if (!isNaN(parsed)) percent = parsed
+          }
+
+          const speed = rawSpeed && rawSpeed !== 'NA' && rawSpeed !== 'Unknown' && rawSpeed !== 'Unknown B/s' ? rawSpeed : null
+          const eta = rawEta && rawEta !== 'NA' && rawEta !== 'Unknown' ? rawEta : null
+
+          if (onProgress && (percent !== null || speed !== null)) {
+            onProgress({ percent, speed, eta })
+          }
+          return
+        }
+
+        // 2. Fallback regex for standard yt-dlp [download] progress output
+        const pctMatch = line.match(/\[download\]\s+([\d.]+)%/)
+        if (pctMatch) {
+          const percent = parseFloat(pctMatch[1])
+          const speedMatch = line.match(/at\s+([\d.]+\s*\S+\/s)/)
+          const etaMatch = line.match(/ETA\s+(\S+)/)
+          if (onProgress) {
+            onProgress({
+              percent,
+              speed: speedMatch ? speedMatch[1].trim() : null,
+              eta: etaMatch ? etaMatch[1].trim() : null
+            })
+          }
+          return
+        }
+
+        // 3. Fallback for yt-dlp byte-only progress lines (e.g. [download]   15.00KiB at  890.98KiB/s)
+        const byteProgressMatch = line.match(/\[download\]\s+[\d.]+\s*\S+\s+at\s+([\d.]+\s*\S+\/s)/)
+        if (byteProgressMatch) {
+          if (onProgress) {
+            onProgress({
+              percent: null,
+              speed: byteProgressMatch[1].trim(),
+              eta: null
+            })
+          }
+          return
+        }
+
+        // If not a progress line or info line, save for capturing final filepath from --print after_move:filepath
+        if (!line.startsWith('[download]') && !line.startsWith('[info]') && !line.startsWith('[generic]') && !line.startsWith('PROGRESS:')) {
+          stdoutBuffer += line + '\n'
+        }
+      }
 
       proc.stdout.on('data', (data) => {
-        const lines = data.toString().split('\n')
+        lineBuffer += data.toString()
+        const lines = lineBuffer.split('\n')
+        lineBuffer = lines.pop()
         for (const line of lines) {
-          const trimmed = line.trim()
-          const pctMatch = trimmed.match(/\[download\]\s+([\d.]+)%/)
-          if (pctMatch && onProgress) {
-            const speedMatch = trimmed.match(/at\s+([\d.]+\s*\S+\/s)/)
-            const etaMatch = trimmed.match(/ETA\s+(\S+)/)
-            onProgress({
-              percent: parseFloat(pctMatch[1]),
-              speed: speedMatch ? speedMatch[1].trim() : null,
-              eta: etaMatch ? etaMatch[1] : null
-            })
-          } else {
-            stdoutBuffer += trimmed + '\n'
-          }
+          processLine(line)
         }
       })
 
       proc.stderr.on('data', (data) => {
-        const lines = data.toString().split('\n')
+        stderrBuffer += data.toString()
+        const lines = stderrBuffer.split('\n')
+        stderrBuffer = lines.pop()
         for (const line of lines) {
-          const trimmed = line.trim()
+          const trimmed = line.replace(/\r/g, '').trim()
           if (!trimmed) continue
           const pctMatch = trimmed.match(/\[download\]\s+([\d.]+)%/)
           if (pctMatch) {
@@ -136,13 +207,14 @@ class VideoManager {
                 eta: etaMatch ? etaMatch[1] : null
               })
             }
-          } else {
+          } else if (!trimmed.startsWith('WARNING:')) {
             Logger.debug(`[VideoManager] ${trimmed}`)
           }
         }
       })
 
       proc.on('close', (code) => {
+        if (lineBuffer) processLine(lineBuffer)
         if (code !== 0) {
           const err = new Error(`yt-dlp exited with code ${code}`)
           Logger.error(`[VideoManager] Download failed: ${err.message}`)
@@ -246,8 +318,9 @@ class VideoManager {
 
           const episodes = entries.map((entry) => {
             const videoUrl = entry.url || (entry.id ? `https://www.youtube.com/watch?v=${entry.id}` : url)
-            const pubDate = entry.upload_date ? `${entry.upload_date.slice(0, 4)}-${entry.upload_date.slice(4, 6)}-${entry.upload_date.slice(6, 8)}` : ''
-            const publishedAt = entry.timestamp ? entry.timestamp * 1000 : (entry.upload_date ? new Date(pubDate || entry.upload_date).valueOf() : null)
+            const rawDate = entry.release_date || entry.upload_date || entry.modified_date || entry.datetime || entry.date
+            const rawTimestamp = entry.release_timestamp || entry.timestamp || entry.epoch
+            const { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
             const thumbnail = entry.thumbnails?.length
               ? entry.thumbnails[entry.thumbnails.length - 1].url
               : (entry.thumbnail || null)
@@ -255,16 +328,30 @@ class VideoManager {
             const episode = entry.episode_number != null ? String(entry.episode_number) : null
             const extracted = (!season && !episode) ? extractEpisodeNumbers(entry.title || '') : {}
 
+            let chapters = []
+            if (Array.isArray(entry.chapters) && entry.chapters.length) {
+              chapters = entry.chapters.map((ch, idx) => ({
+                id: idx,
+                start: typeof ch.start_time === 'number' ? ch.start_time : 0,
+                end: typeof ch.end_time === 'number' ? ch.end_time : 0,
+                title: ch.title || `Chapter ${idx + 1}`
+              }))
+            }
+
+            const tags = Array.isArray(entry.tags) ? entry.tags.filter((t) => typeof t === 'string' && t.trim()) : []
+            const categories = Array.isArray(entry.categories) ? entry.categories.filter((c) => typeof c === 'string' && c.trim()) : []
+            const author = entry.uploader || entry.channel || metadata.author || ''
+
             return {
               title: entry.title || 'Untitled',
-              subtitle: '',
+              subtitle: author,
               description: entry.description || '',
               descriptionPlain: entry.description || '',
               pubDate,
               episodeType: 'full',
               season: season || extracted.season || '',
               episode: episode || extracted.episode || '',
-              author: entry.uploader || entry.channel || metadata.author || '',
+              author,
               duration: entry.duration ? String(entry.duration) : '',
               durationSeconds: entry.duration ? Number(entry.duration) : null,
               explicit: '',
@@ -279,7 +366,21 @@ class VideoManager {
               thumbnail,
               chaptersUrl: null,
               chaptersType: null,
-              chapters: []
+              chapters,
+              extraData: {
+                guid: entry.id || videoUrl,
+                webpageUrl: entry.webpage_url || videoUrl,
+                uploader: entry.uploader || '',
+                uploaderId: entry.uploader_id || '',
+                uploaderUrl: entry.uploader_url || '',
+                channel: entry.channel || '',
+                channelId: entry.channel_id || '',
+                channelUrl: entry.channel_url || '',
+                viewCount: entry.view_count != null ? Number(entry.view_count) : null,
+                likeCount: entry.like_count != null ? Number(entry.like_count) : null,
+                tags,
+                categories
+              }
             }
           })
 

@@ -1,6 +1,7 @@
 const axios = require('axios')
 const ssrfFilter = require('ssrf-req-filter')
 const Logger = require('../Logger')
+const globals = require('./globals')
 const { xmlToJSON, timestampToSeconds, levenshteinSimilarity } = require('./index')
 const htmlSanitizer = require('../utils/htmlSanitizer')
 const Fuse = require('../libs/fusejs')
@@ -156,9 +157,24 @@ function extractEpisodeData(item) {
 
   if (item.enclosure?.[0]?.['$']?.url) {
     enclosure = item.enclosure[0]['$']
-  } else if (item['media:content']?.find((c) => c?.['$']?.url && ((c?.['$']?.type ?? '').startsWith('audio') || (c?.['$']?.type ?? '').startsWith('video')))) {
-    const videoContent = item['media:content'].find((c) => (c['$']?.type ?? '').startsWith('video'))
-    const audioContent = item['media:content'].find((c) => (c['$']?.type ?? '').startsWith('audio'))
+  } else if (item['media:content']?.find((c) => {
+    const type = c?.['$']?.type ?? ''
+    const url = (c?.['$']?.url ?? '').split('?')[0].toLowerCase()
+    const ext = url ? url.split('.').pop() : ''
+    return url && (type.startsWith('audio') || type.startsWith('video') || globals.SupportedVideoTypes.includes(ext) || globals.SupportedAudioTypes.includes(ext))
+  })) {
+    const videoContent = item['media:content'].find((c) => {
+      const type = c?.['$']?.type ?? ''
+      const url = (c?.['$']?.url ?? '').split('?')[0].toLowerCase()
+      const ext = url ? url.split('.').pop() : ''
+      return type.startsWith('video') || globals.SupportedVideoTypes.includes(ext)
+    })
+    const audioContent = item['media:content'].find((c) => {
+      const type = c?.['$']?.type ?? ''
+      const url = (c?.['$']?.url ?? '').split('?')[0].toLowerCase()
+      const ext = url ? url.split('.').pop() : ''
+      return type.startsWith('audio') || globals.SupportedAudioTypes.includes(ext)
+    })
     enclosure = (videoContent || audioContent)['$']
   } else {
     Logger.error(`[podcastUtils] Invalid podcast episode data`)
@@ -270,7 +286,15 @@ function cleanEpisodeData(data) {
   const pubJsDate = data.pubDate ? new Date(data.pubDate) : null
   const publishedAt = pubJsDate && !isNaN(pubJsDate) ? pubJsDate.valueOf() : null
   const enclosureType = data.enclosure?.type || ''
-  const isVideo = enclosureType.startsWith('video/')
+  const cleanEnclosureUrl = (data.enclosure?.url || data.url || '').split('?')[0].toLowerCase()
+  const enclosureExt = cleanEnclosureUrl ? cleanEnclosureUrl.split('.').pop() : ''
+  const isVideo = Boolean(
+    data.isVideo ||
+    enclosureType.startsWith('video/') ||
+    enclosureType === 'application/x-mp4' ||
+    enclosureType === 'application/mp4' ||
+    globals.SupportedVideoTypes.includes(enclosureExt)
+  )
 
   return {
     title: data.title,

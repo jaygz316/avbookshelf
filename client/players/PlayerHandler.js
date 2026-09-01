@@ -2,6 +2,7 @@ import LocalAudioPlayer from './LocalAudioPlayer'
 import LocalVideoPlayer from './LocalVideoPlayer'
 import CastPlayer from './CastPlayer'
 import AudioTrack from './AudioTrack'
+import { isVideoEpisode } from '@/video/videoUtils'
 
 export default class PlayerHandler {
   constructor(ctx) {
@@ -46,7 +47,7 @@ export default class PlayerHandler {
     if (!this.episodeId || !this.libraryItem) return false
     const episodes = this.libraryItem.media?.episodes || []
     const episode = episodes.find((ep) => ep.id === this.episodeId)
-    return episode?.episodeMediaType === 'video' || !!episode?.videoFile
+    return isVideoEpisode(episode)
   }
   get episode() {
     if (!this.episodeId) return null

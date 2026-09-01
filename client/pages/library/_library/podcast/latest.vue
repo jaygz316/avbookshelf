@@ -43,7 +43,7 @@
               <div dir="auto" class="flex items-center mb-2">
                 <div class="font-semibold text-sm md:text-base">{{ episode.title }}</div>
                 <widgets-podcast-type-indicator :type="episode.episodeType" />
-                <ui-tooltip v-if="episode.episodeMediaType === 'video' || episode.videoFile" text="Video" direction="top">
+                <ui-tooltip v-if="isVideoEpisode(episode)" text="Video" direction="top">
                   <span class="material-symbols text-yellow-400 text-base ml-1.5">videocam</span>
                 </ui-tooltip>
               </div>
@@ -81,6 +81,8 @@
 </template>
 
 <script>
+import { isVideoEpisode } from '@/video/videoUtils'
+
 export default {
   async asyncData({ params, query, store, app, redirect }) {
     var libraryId = params.library
@@ -280,6 +282,9 @@ export default {
         }
         this.$store.commit('addItemToQueue', queueItem)
       }
+    },
+    isVideoEpisode(episode) {
+      return isVideoEpisode(episode)
     }
   },
   mounted() {

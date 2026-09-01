@@ -386,16 +386,20 @@ class Stream extends EventEmitter {
       await this.waitCancelTranscode()
     }
 
-    try {
-      await fs.remove(this.streamPath)
-      Logger.info('Deleted session data', this.streamPath)
-    } catch (err) {
-      // Retry once after 300ms in case ffmpeg was in the middle of writing a trailing segment
-      await new Promise((resolve) => setTimeout(resolve, 300))
-      await fs.remove(this.streamPath).catch((retryErr) => {
-        Logger.error('Failed to delete session data', retryErr)
-      })
-    }
+    // Allow a 5-second grace period for in-flight segment requests to complete before purging files from disk
+    const streamDirToDelete = this.streamPath
+    setTimeout(async () => {
+      try {
+        await fs.remove(streamDirToDelete)
+        Logger.info('Deleted session data', streamDirToDelete)
+      } catch (err) {
+        // Retry once after 300ms in case ffmpeg was in the middle of writing a trailing segment
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        await fs.remove(streamDirToDelete).catch((retryErr) => {
+          Logger.error('Failed to delete session data', retryErr)
+        })
+      }
+    }, 5000)
 
     if (errorMessage) this.clientEmit('stream_error', { id: this.id, error: (errorMessage || '').trim() })
     else this.clientEmit('stream_closed', this.id)

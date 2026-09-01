@@ -66,39 +66,61 @@ class PodcastEpisode extends Model {
    * @param {boolean} isVideo
    */
   static async createFromRssPodcastEpisode(rssPodcastEpisode, podcastId, mediaFile, isVideo = false) {
-    const isVideoEpisode = isVideo || !!rssPodcastEpisode.isVideo
+    const globals = require('../utils/globals')
+    const mediaFileIsVideo = mediaFile && (mediaFile.constructor?.name === 'VideoFile' || mediaFile.mimeType?.startsWith('video/') || (mediaFile.metadata?.ext && globals.SupportedVideoTypes?.includes(mediaFile.metadata.ext.replace(/^\./, '').toLowerCase())))
+    const isVideoEpisode = isVideo || !!rssPodcastEpisode?.isVideo || mediaFileIsVideo
+    const infoJson = mediaFile?.infoJson || null
+
+    const season = rssPodcastEpisode?.season || infoJson?.season || null
+    const episode = rssPodcastEpisode?.episode || infoJson?.episode || null
+    const episodeType = rssPodcastEpisode?.episodeType || infoJson?.episodeType || 'full'
+    const title = rssPodcastEpisode?.title || infoJson?.title || 'Untitled'
+    const subtitle = rssPodcastEpisode?.subtitle || infoJson?.subtitle || null
+    const description = rssPodcastEpisode?.description || infoJson?.description || null
+    const pubDate = rssPodcastEpisode?.pubDate || infoJson?.pubDate || null
+    const publishedAt = rssPodcastEpisode?.publishedAt || infoJson?.publishedAt || null
+    const thumbnail = rssPodcastEpisode?.thumbnail || infoJson?.thumbnail || null
+
+    const extraData = {
+      ...(infoJson?.extraData || {}),
+      ...(rssPodcastEpisode?.extraData || {})
+    }
+    if (rssPodcastEpisode?.guid) {
+      extraData.guid = rssPodcastEpisode.guid
+    }
+    if (rssPodcastEpisode?.itunesGuid) {
+      extraData.itunesGuid = rssPodcastEpisode.itunesGuid
+    }
+
+    let chapters = []
+    if (mediaFile?.chapters?.length) {
+      chapters = mediaFile.chapters.map((ch) => ({ ...ch }))
+    } else if (rssPodcastEpisode?.chapters?.length) {
+      chapters = rssPodcastEpisode.chapters.map((ch) => ({ ...ch }))
+    } else if (infoJson?.chapters?.length) {
+      chapters = infoJson.chapters.map((ch) => ({ ...ch }))
+    }
+
     const podcastEpisode = {
       index: null,
-      season: rssPodcastEpisode.season,
-      episode: rssPodcastEpisode.episode,
-      episodeType: rssPodcastEpisode.episodeType,
-      title: rssPodcastEpisode.title,
-      subtitle: rssPodcastEpisode.subtitle,
-      description: rssPodcastEpisode.description,
-      pubDate: rssPodcastEpisode.pubDate,
-      enclosureURL: rssPodcastEpisode.enclosure?.url || null,
-      enclosureSize: rssPodcastEpisode.enclosure?.length || null,
-      enclosureType: rssPodcastEpisode.enclosure?.type || null,
-      publishedAt: rssPodcastEpisode.publishedAt,
+      season,
+      episode,
+      episodeType,
+      title,
+      subtitle,
+      description,
+      pubDate,
+      enclosureURL: rssPodcastEpisode?.enclosure?.url || null,
+      enclosureSize: rssPodcastEpisode?.enclosure?.length || null,
+      enclosureType: rssPodcastEpisode?.enclosure?.type || null,
+      publishedAt,
       podcastId,
       audioFile: isVideoEpisode ? null : mediaFile.toJSON(),
       videoFile: isVideoEpisode ? mediaFile.toJSON() : null,
       episodeMediaType: isVideoEpisode ? 'video' : 'audio',
-      thumbnail: rssPodcastEpisode.thumbnail || null,
-      chapters: [],
-      extraData: {}
-    }
-    if (rssPodcastEpisode.guid) {
-      podcastEpisode.extraData.guid = rssPodcastEpisode.guid
-    }
-    if (rssPodcastEpisode.itunesGuid) {
-      podcastEpisode.extraData.itunesGuid = rssPodcastEpisode.itunesGuid
-    }
-
-    if (mediaFile.chapters?.length) {
-      podcastEpisode.chapters = mediaFile.chapters.map((ch) => ({ ...ch }))
-    } else if (rssPodcastEpisode.chapters?.length) {
-      podcastEpisode.chapters = rssPodcastEpisode.chapters.map((ch) => ({ ...ch }))
+      thumbnail,
+      chapters,
+      extraData
     }
 
     return this.create(podcastEpisode)
@@ -172,15 +194,15 @@ class PodcastEpisode extends Model {
   }
 
   get size() {
-    return this.audioFile?.metadata?.size || this.videoFile?.metadata?.size || 0
+    return (this.isVideo && this.videoFile?.metadata?.size) || this.videoFile?.metadata?.size || this.audioFile?.metadata?.size || 0
   }
 
   get duration() {
-    return this.audioFile?.duration || this.videoFile?.duration || 0
+    return (this.isVideo && this.videoFile?.duration) || this.videoFile?.duration || this.audioFile?.duration || 0
   }
 
   get isVideo() {
-    return this.episodeMediaType === 'video'
+    return this.episodeMediaType === 'video' || !!this.videoFile
   }
 
   /**
@@ -283,13 +305,18 @@ class PodcastEpisode extends Model {
     if (this.isVideo && this.videoFile) {
       return this.getVideoTrack(libraryItemId)
     }
-    if (!this.audioFile) return null
-    const track = structuredClone(this.audioFile)
-    track.startOffset = 0
-    track.title = this.audioFile.metadata?.filename
-    track.index = 1 // Podcast episodes only have one track
-    track.contentUrl = `/api/items/${libraryItemId}/file/${track.ino}`
-    return track
+    if (this.audioFile) {
+      const track = structuredClone(this.audioFile)
+      track.startOffset = 0
+      track.title = this.audioFile.metadata?.filename
+      track.index = 1 // Podcast episodes only have one track
+      track.contentUrl = `/api/items/${libraryItemId}/file/${track.ino}`
+      return track
+    }
+    if (this.videoFile) {
+      return this.getVideoTrack(libraryItemId)
+    }
+    return null
   }
 
   toOldJSON(libraryItemId) {
@@ -305,6 +332,8 @@ class PodcastEpisode extends Model {
         length: this.enclosureSize !== null ? String(this.enclosureSize) : null
       }
     }
+
+    const isVideo = this.isVideo
 
     return {
       libraryItemId: libraryItemId,
@@ -324,7 +353,8 @@ class PodcastEpisode extends Model {
       chapters: structuredClone(this.chapters),
       audioFile: this.audioFile ? structuredClone(this.audioFile) : null,
       videoFile: this.videoFile ? structuredClone(this.videoFile) : null,
-      episodeMediaType: this.episodeMediaType || (this.videoFile ? 'video' : 'audio'),
+      episodeMediaType: isVideo ? 'video' : 'audio',
+      isVideo,
       thumbnail: this.thumbnail || null,
       publishedAt: this.publishedAt?.valueOf() || null,
       addedAt: this.createdAt.valueOf(),

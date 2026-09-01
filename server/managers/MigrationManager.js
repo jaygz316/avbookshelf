@@ -52,13 +52,14 @@ class MigrationManager {
     if (!this.maxVersion || !this.databaseVersion) throw new Error('Failed to fetch versions from the database.')
     Logger.debug(`[MigrationManager] Database version: ${this.databaseVersion}, Max version: ${this.maxVersion}, Server version: ${this.serverVersion}`)
 
-    if (semver.gt(this.serverVersion, this.maxVersion)) {
-      try {
-        await this.copyMigrationsToConfigDir()
-      } catch (error) {
-        throw new Error('Failed to copy migrations to the config directory.', { cause: error })
-      }
+    // Always ensure source migrations are synced to config directory
+    try {
+      await this.copyMigrationsToConfigDir()
+    } catch (error) {
+      throw new Error('Failed to copy migrations to the config directory.', { cause: error })
+    }
 
+    if (semver.gt(this.serverVersion, this.maxVersion)) {
       try {
         await this.updateMaxVersion()
       } catch (error) {
@@ -77,17 +78,12 @@ class MigrationManager {
       return
     }
 
-    const versionCompare = semver.compare(this.serverVersion, this.databaseVersion)
-    if (versionCompare == 0) {
-      Logger.info('[MigrationManager] Database is already up to date.')
-      return
-    }
-
     await this.initUmzug()
     const migrations = await this.umzug.migrations()
     const executedMigrations = (await this.umzug.executed()).map((m) => m.name)
 
-    const migrationDirection = versionCompare == 1 ? 'up' : 'down'
+    const versionCompare = semver.compare(this.serverVersion, this.databaseVersion)
+    const migrationDirection = versionCompare === -1 ? 'down' : 'up'
 
     let migrationsToRun = []
     migrationsToRun = this.findMigrationsToRun(migrations, executedMigrations, migrationDirection)
@@ -127,10 +123,12 @@ class MigrationManager {
         process.exit(1)
       }
     } else {
-      Logger.info('[MigrationManager] No migrations to run.')
+      Logger.info('[MigrationManager] Database is already up to date.')
     }
 
-    await this.updateDatabaseVersion()
+    if (versionCompare !== 0) {
+      await this.updateDatabaseVersion()
+    }
   }
 
   async initUmzug(umzugStorage = new SequelizeStorage({ sequelize: this.sequelize })) {
@@ -283,7 +281,7 @@ class MigrationManager {
       .filter((migration) => {
         const migrationVersion = this.extractVersionFromTag(migration.name)
         if (direction === 'up') {
-          return semver.gt(migrationVersion, this.databaseVersion) && semver.lte(migrationVersion, this.serverVersion) && !executedMigrations.includes(migration.name)
+          return semver.lte(migrationVersion, this.serverVersion) && !executedMigrations.includes(migration.name)
         } else {
           // A down migration should be run even if the associated up migration wasn't executed before
           return semver.lte(migrationVersion, this.databaseVersion) && semver.gt(migrationVersion, this.serverVersion)

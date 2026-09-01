@@ -83,7 +83,8 @@ class PodcastScanner {
       // filter() returns a new array — reassign to media.podcastEpisodes before emit.
       const episodesToRemove = []
       existingPodcastEpisodes = existingPodcastEpisodes.filter((ep) => {
-        const fileToCheck = ep.audioFile || ep.videoFile
+        if (!ep.audioFile && !ep.videoFile) return true
+        const fileToCheck = ep.episodeMediaType === 'video' ? (ep.videoFile || ep.audioFile) : (ep.audioFile || ep.videoFile)
         if (libraryItemData.checkMediaFileRemoved(fileToCheck)) {
           episodesToRemove.push(ep)
           return false
@@ -225,6 +226,164 @@ class PodcastScanner {
       // Add new video files scanned in
       if (await videoScanner.handleAddedVideoFiles(existingLibraryItem, libraryItemData, existingPodcastEpisodes, media, AudioFileScanner, libraryScan)) {
         hasEpisodeChanges = true
+      }
+    }
+
+    // Check and upgrade any existing episodes that have video files or video extensions
+    for (const ep of existingPodcastEpisodes) {
+      if (!ep.videoFile && ep.audioFile) {
+        const afExt = (ep.audioFile.metadata?.ext || ep.audioFile.metadata?.format || '').replace(/^\./, '').toLowerCase()
+        const isVideoExt = globals.SupportedVideoTypes.some((vExt) => afExt === vExt || afExt.includes(vExt))
+        if (isVideoExt) {
+          const matchingLf = libraryItemData.libraryFiles?.find((lf) =>
+            lf.ino === ep.audioFile.ino ||
+            lf.metadata?.path === ep.audioFile.metadata?.path ||
+            (lf.metadata?.filenameNoExt && ep.audioFile.metadata?.filenameNoExt && lf.metadata.filenameNoExt.toLowerCase() === ep.audioFile.metadata.filenameNoExt.toLowerCase())
+          )
+          if (matchingLf) {
+            const res = await this.scanVideoLibraryFile(matchingLf)
+            if (res) {
+              ep.videoFile = res.videoFile.toJSON()
+              ep.episodeMediaType = 'video'
+              ep.audioFile = null
+              ep.changed('videoFile', true)
+              ep.changed('episodeMediaType', true)
+              ep.changed('audioFile', true)
+              if (res.videoFile.thumbnail) {
+                ep.thumbnail = res.videoFile.thumbnail
+                ep.changed('thumbnail', true)
+                const thumbFilename = Path.basename(res.videoFile.thumbnail)
+                const thumbPath = Path.join(Path.dirname(matchingLf.metadata.path), thumbFilename)
+                if (await fsExtra.pathExists(thumbPath)) {
+                  const existingLf = existingLibraryItem.libraryFiles?.find((lf) => lf.metadata?.path === filePathToPOSIX(thumbPath))
+                  if (!existingLf) {
+                    const thumbLf = new LibraryFile()
+                    await thumbLf.setDataFromPath(thumbPath, res.videoFile.thumbnail)
+                    existingLibraryItem.libraryFiles.push(thumbLf.toJSON())
+                    existingLibraryItem.changed('libraryFiles', true)
+                  }
+                }
+              }
+              if (res.infoJson) {
+                if (!ep.publishedAt && res.infoJson.publishedAt) {
+                  ep.publishedAt = res.infoJson.publishedAt
+                  ep.pubDate = res.infoJson.pubDate
+                  ep.changed('publishedAt', true)
+                  ep.changed('pubDate', true)
+                }
+                if (!ep.description && res.infoJson.description) {
+                  ep.description = res.infoJson.description
+                  ep.changed('description', true)
+                }
+                if (!ep.subtitle && res.infoJson.subtitle) {
+                  ep.subtitle = res.infoJson.subtitle
+                  ep.changed('subtitle', true)
+                }
+                if (!ep.season && res.infoJson.season) {
+                  ep.season = res.infoJson.season
+                  ep.changed('season', true)
+                }
+                if (!ep.episode && res.infoJson.episode) {
+                  ep.episode = res.infoJson.episode
+                  ep.changed('episode', true)
+                }
+                if (!ep.chapters?.length && res.infoJson.chapters?.length) {
+                  ep.chapters = res.infoJson.chapters
+                  ep.changed('chapters', true)
+                }
+                if (res.infoJson.extraData && !ep.extraData?.guid) {
+                  ep.extraData = { ...(ep.extraData || {}), ...res.infoJson.extraData }
+                  ep.changed('extraData', true)
+                }
+              }
+              await ep.save()
+              hasEpisodeChanges = true
+            }
+          }
+        }
+      } else if (ep.videoFile && ep.episodeMediaType !== 'video') {
+        ep.episodeMediaType = 'video'
+        ep.changed('episodeMediaType', true)
+        await ep.save()
+        hasEpisodeChanges = true
+      }
+    }
+
+    // Check all video library files on disk to ensure every video file has a corresponding video episode
+    const allVideoLibraryFiles = libraryItemData.videoLibraryFiles || []
+    for (const videoLf of allVideoLibraryFiles) {
+      const alreadyAttached = existingPodcastEpisodes.some((ep) =>
+        ep.videoFile && (ep.videoFile.ino === videoLf.ino || filePathToPOSIX(ep.videoFile.metadata?.path) === filePathToPOSIX(videoLf.metadata.path))
+      )
+      if (!alreadyAttached) {
+        const res = await this.scanVideoLibraryFile(videoLf)
+        if (res) {
+          const videoFilenameNoExt = videoLf.metadata?.filenameNoExt || res.videoFile.metadata?.filenameNoExt || Path.parse(videoLf.metadata?.filename || '').name
+          const infoJson = res.infoJson
+          const videoTitle = infoJson?.title || res.probeData.audioMetaTags?.tagTitle || videoFilenameNoExt || res.videoFile.metadata.filename.replace(/\.[^.]+$/, '')
+          const extracted = require('../utils/podcastUtils').extractEpisodeNumbers(videoTitle)
+          const season = infoJson?.season || extracted.season || null
+          const episode = infoJson?.episode || extracted.episode || null
+
+          // Match by audioFile or title
+          const matchingEpisode = existingPodcastEpisodes.find((ep) => {
+            if (ep.audioFile && (ep.audioFile.ino === videoLf.ino || filePathToPOSIX(ep.audioFile.metadata?.path) === filePathToPOSIX(videoLf.metadata.path))) {
+              return true
+            }
+            if (ep.audioFile) {
+              const audioFilenameNoExt = ep.audioFile.metadata?.filenameNoExt || Path.parse(ep.audioFile.metadata?.filename || '').name
+              if (videoFilenameNoExt && audioFilenameNoExt && videoFilenameNoExt.toLowerCase() === audioFilenameNoExt.toLowerCase()) {
+                return true
+              }
+            }
+            if (ep.title && videoTitle && ep.title.trim().toLowerCase() === videoTitle.trim().toLowerCase()) {
+              return true
+            }
+            return false
+          })
+
+          if (matchingEpisode) {
+            matchingEpisode.videoFile = res.videoFile.toJSON()
+            matchingEpisode.episodeMediaType = 'video'
+            matchingEpisode.audioFile = null
+            matchingEpisode.changed('videoFile', true)
+            matchingEpisode.changed('episodeMediaType', true)
+            matchingEpisode.changed('audioFile', true)
+            if (res.videoFile.thumbnail) {
+              matchingEpisode.thumbnail = res.videoFile.thumbnail
+              matchingEpisode.changed('thumbnail', true)
+            }
+            if (!matchingEpisode.chapters?.length && res.probeData.chapters?.length) {
+              matchingEpisode.chapters = res.probeData.chapters
+              matchingEpisode.changed('chapters', true)
+            }
+            await matchingEpisode.save()
+            hasEpisodeChanges = true
+          } else {
+            const newEpisode = {
+              title: videoTitle,
+              subtitle: infoJson?.subtitle || null,
+              season,
+              episode,
+              episodeType: infoJson?.episodeType || 'full',
+              pubDate: infoJson?.pubDate || null,
+              publishedAt: infoJson?.publishedAt || null,
+              description: infoJson?.description || null,
+              audioFile: null,
+              videoFile: res.videoFile.toJSON(),
+              episodeMediaType: 'video',
+              thumbnail: res.videoFile.thumbnail || null,
+              chapters: res.probeData.chapters?.length ? res.probeData.chapters : (infoJson?.chapters || []),
+              podcastId: media.id,
+              extraData: infoJson?.extraData || {}
+            }
+            const newPodcastEpisode = Database.podcastEpisodeModel.build(newEpisode)
+            AudioFileScanner.setPodcastEpisodeMetadataFromAudioMetaTags(newPodcastEpisode, libraryScan)
+            await newPodcastEpisode.save()
+            existingPodcastEpisodes.push(newPodcastEpisode)
+            hasEpisodeChanges = true
+          }
+        }
       }
     }
 

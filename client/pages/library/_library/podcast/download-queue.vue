@@ -128,12 +128,25 @@ export default {
       this.$root.socket.on('episode_download_progress', this.episodeDownloadProgress)
     },
     episodeDownloadProgress(progressData) {
-      if (progressData.libraryId === this.libraryId) {
+      if (progressData.libraryId === this.libraryId || !progressData.libraryId) {
         const ep = this.episodesDownloading.find((d) => d.id === progressData.id)
         if (ep) {
           this.$set(ep, 'progress', progressData.progress)
           this.$set(ep, 'progressSpeed', progressData.progressSpeed)
           this.$set(ep, 'progressEta', progressData.progressEta)
+          if (progressData.episodeDisplayTitle && !ep.episodeDisplayTitle) {
+            this.$set(ep, 'episodeDisplayTitle', progressData.episodeDisplayTitle)
+          }
+        } else {
+          this.episodesDownloading.push({
+            id: progressData.id,
+            libraryItemId: progressData.libraryItemId,
+            libraryId: progressData.libraryId,
+            episodeDisplayTitle: progressData.episodeDisplayTitle,
+            progress: progressData.progress,
+            progressSpeed: progressData.progressSpeed,
+            progressEta: progressData.progressEta
+          })
         }
       }
     }

@@ -253,7 +253,7 @@ describe('Stream', () => {
       expect(addedOptions).to.include('scale=-2:1080')
     })
 
-    it('should copy audio when source audio codec is AAC (skip re-encode)', async () => {
+    it('should always encode audio to AAC stereo for video streams to prevent packet corruption', async () => {
       mockVideoLibraryItem.getTrackList = sinon.stub().returns([
         {
           index: 1, duration: 3600, mimeType: 'video/mp4',
@@ -267,8 +267,9 @@ describe('Stream', () => {
       sinon.stub(stream, 'startLoop')
       await stream.start()
 
-      expect(addedOptions).to.include('-c:a copy')
-      expect(addedOptions).to.not.include('-c:a aac')
+      expect(addedOptions).to.include('-c:a aac')
+      expect(addedOptions).to.include('-b:a 192k')
+      expect(addedOptions).to.include('-ac 2')
     })
 
     it('should transcode audio to AAC when source is not AAC', async () => {
@@ -287,6 +288,7 @@ describe('Stream', () => {
 
       expect(addedOptions).to.include('-c:a aac')
       expect(addedOptions).to.include('-b:a 192k')
+      expect(addedOptions).to.include('-ac 2')
     })
   })
 })

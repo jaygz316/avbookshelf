@@ -27,6 +27,16 @@ describe('YtDlpManager', () => {
     }
   })
 
+  describe('parseUploadDate', () => {
+    it('should parse YYYYMMDD and timestamps to milliseconds', () => {
+      const manager = new YtDlpManager()
+      expect(manager.parseUploadDate('20230514')).to.equal(Date.UTC(2023, 4, 14))
+      expect(manager.parseUploadDate(null, 1684022400)).to.equal(1684022400000)
+      expect(manager.parseUploadDate('2023-05-14T00:00:00Z')).to.equal(new Date('2023-05-14T00:00:00Z').valueOf())
+      expect(manager.parseUploadDate(null)).to.be.null
+    })
+  })
+
   describe('getFormatForQuality', () => {
     it('should return correct format strings for quality settings', () => {
       const manager = new YtDlpManager()
@@ -53,7 +63,7 @@ describe('YtDlpManager', () => {
       sinon.restore()
     })
 
-    it('should pass correct format string to yt-dlp args based on quality parameter', async () => {
+    it('should pass correct format string, --embed-metadata, and --embed-chapters to yt-dlp args', async () => {
       const { EventEmitter } = require('events')
       const manager = new YtDlpManager()
       manager.ytDlpPath = '/usr/bin/yt-dlp'
@@ -77,6 +87,9 @@ describe('YtDlpManager', () => {
       const formatIdx720 = capturedArgs[0].indexOf('-f')
       expect(formatIdx720).to.be.greaterThan(-1)
       expect(capturedArgs[0][formatIdx720 + 1]).to.equal('bestvideo[height<=720]+bestaudio/best[height<=720]')
+      expect(capturedArgs[0]).to.include('--embed-metadata')
+      expect(capturedArgs[0]).to.include('--embed-chapters')
+      expect(capturedArgs[0]).to.include('--write-info-json')
 
       const res1080 = await manager.downloadVideo('https://youtube.com/watch?v=456', '/tmp/out', 'episode2', '1080p_source')
       const formatIdx1080 = capturedArgs[1].indexOf('-f')
@@ -85,6 +98,70 @@ describe('YtDlpManager', () => {
       const resBest = await manager.downloadVideo('https://youtube.com/watch?v=789', '/tmp/out', 'episode3', 'best_compatible')
       const formatIdxBest = capturedArgs[2].indexOf('-f')
       expect(capturedArgs[2][formatIdxBest + 1]).to.equal('bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[vcodec^=avc1]+bestaudio/bestvideo+bestaudio/best')
+      expect(capturedArgs[2]).to.include('--progress-template')
+    })
+
+    it('should parse PROGRESS template and invoke onProgress with percentage, speed, and ETA', async () => {
+      const { EventEmitter } = require('events')
+      const manager = new YtDlpManager()
+      manager.ytDlpPath = '/usr/bin/yt-dlp'
+      manager.isAvailable = true
+
+      const progressUpdates = []
+      sinon.stub(childProcess, 'spawn').callsFake(() => {
+        const proc = new EventEmitter()
+        proc.stdout = new EventEmitter()
+        proc.stderr = new EventEmitter()
+        setImmediate(() => {
+          proc.stdout.emit('data', Buffer.from('PROGRESS:  25.5%|  4.50MiB/s|00:30|  25.50MiB| 100.00MiB|       N/A\n'))
+          proc.stdout.emit('data', Buffer.from('PROGRESS:  50.0%|  5.12MiB/s|00:15|  50.00MiB| 100.00MiB|       N/A\n'))
+          proc.stdout.emit('data', Buffer.from('PROGRESS: 100.0%|  6.00MiB/s|00:00| 100.00MiB| 100.00MiB|       N/A\n/path/to/final.mp4\n'))
+          proc.emit('close', 0)
+        })
+        return proc
+      })
+
+      const res = await manager.downloadVideo('https://youtube.com/watch?v=123', '/tmp/out', 'ep1', 'best_compatible', (info) => {
+        progressUpdates.push(info)
+      })
+
+      expect(res.filepath).to.equal('/path/to/final.mp4')
+      expect(progressUpdates).to.have.length(3)
+      expect(progressUpdates[0]).to.deep.equal({ percent: 25.5, speed: '4.50MiB/s', eta: '00:30' })
+      expect(progressUpdates[1]).to.deep.equal({ percent: 50.0, speed: '5.12MiB/s', eta: '00:15' })
+      expect(progressUpdates[2]).to.deep.equal({ percent: 100.0, speed: '6.00MiB/s', eta: '00:00' })
+    })
+
+    it('should parse standard yt-dlp download lines and split chunk buffers correctly', async () => {
+      const { EventEmitter } = require('events')
+      const manager = new YtDlpManager()
+      manager.ytDlpPath = '/usr/bin/yt-dlp'
+      manager.isAvailable = true
+
+      const progressUpdates = []
+      sinon.stub(childProcess, 'spawn').callsFake(() => {
+        const proc = new EventEmitter()
+        proc.stdout = new EventEmitter()
+        proc.stderr = new EventEmitter()
+        setImmediate(() => {
+          // Simulate chunk split across 'data' events
+          proc.stdout.emit('data', Buffer.from('[download]  33.3% of 90.00MiB at 3.'))
+          proc.stdout.emit('data', Buffer.from('20MiB/s ETA 00:20\n'))
+          proc.stdout.emit('data', Buffer.from('[download]   15.00KiB at  890.98KiB/s\n'))
+          proc.stdout.emit('data', Buffer.from('/path/to/split.mp4\n'))
+          proc.emit('close', 0)
+        })
+        return proc
+      })
+
+      const res = await manager.downloadVideo('https://youtube.com/watch?v=123', '/tmp/out', 'ep1', 'best_compatible', (info) => {
+        progressUpdates.push(info)
+      })
+
+      expect(res.filepath).to.equal('/path/to/split.mp4')
+      expect(progressUpdates).to.have.length(2)
+      expect(progressUpdates[0]).to.deep.equal({ percent: 33.3, speed: '3.20MiB/s', eta: '00:20' })
+      expect(progressUpdates[1]).to.deep.equal({ percent: null, speed: '890.98KiB/s', eta: null })
     })
   })
 
@@ -96,7 +173,7 @@ describe('YtDlpManager', () => {
       sinon.restore()
     })
 
-    it('should parse entries and return metadata and episodes with enclosures', async () => {
+    it('should parse entries and return metadata and episodes with published date, chapters, and extraData', async () => {
       const manager = new YtDlpManager()
       manager.ytDlpPath = '/usr/bin/yt-dlp'
       manager.isAvailable = true
@@ -107,12 +184,18 @@ describe('YtDlpManager', () => {
           title: 'Episode 1',
           channel: 'Test Channel',
           uploader: 'Test Channel',
+          uploader_id: '@TestChannel',
           playlist_title: 'My Playlist',
           playlist_description: 'Playlist Description',
           description: 'Episode 1 Desc',
           upload_date: '20260101',
           duration: 3600,
-          thumbnail: 'https://img.youtube.com/vi/vid1/default.jpg'
+          thumbnail: 'https://img.youtube.com/vi/vid1/default.jpg',
+          tags: ['Tech', 'News'],
+          categories: ['Science'],
+          chapters: [
+            { start_time: 0, end_time: 60, title: 'Intro' }
+          ]
         }),
         JSON.stringify({
           id: 'vid2',
@@ -140,12 +223,23 @@ describe('YtDlpManager', () => {
       expect(ep1.title).to.equal('Episode 1')
       expect(ep1.isVideo).to.be.true
       expect(ep1.isYtDlp).to.be.true
+      expect(ep1.pubDate).to.equal('2026-01-01')
+      expect(ep1.publishedAt).to.equal(Date.UTC(2026, 0, 1))
       expect(ep1.enclosure).to.deep.equal({
         url: 'https://www.youtube.com/watch?v=vid1',
         type: 'video/mp4'
       })
       expect(ep1.durationSeconds).to.equal(3600)
       expect(ep1.guid).to.equal('vid1')
+      expect(ep1.chapters).to.deep.equal([
+        { id: 0, start: 0, end: 60, title: 'Intro' }
+      ])
+      expect(ep1.extraData.uploaderId).to.equal('@TestChannel')
+      expect(ep1.extraData.tags).to.deep.equal(['Tech', 'News'])
+
+      const ep2 = feed.episodes[1]
+      expect(ep2.pubDate).to.equal('2026-01-02')
+      expect(ep2.publishedAt).to.equal(Date.UTC(2026, 0, 2))
     })
 
     it('should use yt-dlp season_number and episode_number when available', async () => {
@@ -168,6 +262,8 @@ describe('YtDlpManager', () => {
       const feed = await manager.getChannelFeed('https://www.youtube.com/playlist?list=PL123')
       expect(feed.episodes[0].season).to.equal('2')
       expect(feed.episodes[0].episode).to.equal('5')
+      expect(feed.episodes[0].publishedAt).to.equal(Date.UTC(2026, 0, 1))
+      expect(feed.episodes[0].pubDate).to.equal('2026-01-01')
     })
   })
 })

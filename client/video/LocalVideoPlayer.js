@@ -196,13 +196,30 @@ export default class LocalVideoPlayer extends EventEmitter {
 
       this.hlsInstance.on(Hls.Events.ERROR, (e, data) => {
         if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
-          console.error("[HLS] BUFFER STALLED ERROR")
+          console.warn("[HLS] BUFFER STALLED ERROR")
         } else if (data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR) {
           if (data.errorAction?.action !== 5) {
-            console.error("[HLS] FRAG LOAD ERROR", data)
+            console.warn("[HLS] FRAG LOAD ERROR", data)
           }
         } else {
           console.error("[HLS] Error", data.type, data.details, data)
+        }
+
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              console.warn("[HLS] Fatal network error encountered, recovering...")
+              this.hlsInstance.startLoad()
+              break
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              console.warn("[HLS] Fatal media error (audio/video buffer corruption), recovering...")
+              this.hlsInstance.recoverMediaError()
+              break
+            default:
+              console.error("[HLS] Unrecoverable fatal error, destroying instance", data)
+              this.destroyHlsInstance()
+              break
+          }
         }
       })
       this.hlsInstance.on(Hls.Events.DESTROYING, () => {

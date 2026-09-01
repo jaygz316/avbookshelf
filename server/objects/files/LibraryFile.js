@@ -41,9 +41,9 @@ class LibraryFile {
 
   get fileType() {
     if (globals.SupportedImageTypes.includes(this.metadata.format)) return 'image'
+    if (globals.SupportedVideoTypes?.includes(this.metadata.format)) return 'video'
     if (globals.SupportedAudioTypes.includes(this.metadata.format)) return 'audio'
     if (globals.SupportedEbookTypes.includes(this.metadata.format)) return 'ebook'
-    if (globals.SupportedVideoTypes?.includes(this.metadata.format)) return 'video'
     if (globals.TextFileTypes.includes(this.metadata.format)) return 'text'
     if (globals.MetadataFileTypes.includes(this.metadata.format)) return 'metadata'
     return 'unknown'
@@ -67,6 +67,7 @@ class LibraryFile {
 
   async setDataFromPath(path, relPath) {
     var fileTsData = await getFileTimestampsWithIno(path)
+    if (!fileTsData) return false
     var fileMetadata = new FileMetadata()
     fileMetadata.setData(fileTsData)
     fileMetadata.filename = Path.basename(relPath)
@@ -77,6 +78,24 @@ class LibraryFile {
     this.metadata = fileMetadata
     this.addedAt = Date.now()
     this.updatedAt = Date.now()
+    return true
+  }
+
+  setDataFromPathSync(path, relPath) {
+    const { getFileTimestampsWithInoSync } = require('../../utils/fileUtils')
+    const fileTsData = getFileTimestampsWithInoSync(path)
+    if (!fileTsData) return false
+    const fileMetadata = new FileMetadata()
+    fileMetadata.setData(fileTsData)
+    fileMetadata.filename = Path.basename(relPath)
+    fileMetadata.path = filePathToPOSIX(path)
+    fileMetadata.relPath = filePathToPOSIX(relPath)
+    fileMetadata.ext = Path.extname(relPath)
+    this.ino = fileTsData.ino
+    this.metadata = fileMetadata
+    this.addedAt = Date.now()
+    this.updatedAt = Date.now()
+    return true
   }
 }
 module.exports = LibraryFile

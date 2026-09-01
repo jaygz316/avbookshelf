@@ -72,6 +72,7 @@
                 </div>
                 <div class="flex items-center gap-2 shrink-0 ml-2 text-xs">
                   <span v-if="episode.progressSpeed" class="font-mono text-gray-300">{{ episode.progressSpeed }}</span>
+                  <span v-if="episode.progressEta" class="text-gray-400 font-mono text-xs">ETA {{ episode.progressEta }}</span>
                   <span v-if="episode.progress != null" class="text-success font-bold">{{ Math.round(episode.progress) }}%</span>
                 </div>
               </div>
@@ -695,6 +696,19 @@ export default {
           this.$set(ep, 'progress', progressData.progress)
           this.$set(ep, 'progressSpeed', progressData.progressSpeed)
           this.$set(ep, 'progressEta', progressData.progressEta)
+          if (progressData.episodeDisplayTitle && !ep.episodeDisplayTitle) {
+            this.$set(ep, 'episodeDisplayTitle', progressData.episodeDisplayTitle)
+          }
+        } else {
+          this.episodesDownloading.push({
+            id: progressData.id,
+            libraryItemId: progressData.libraryItemId,
+            libraryId: progressData.libraryId,
+            episodeDisplayTitle: progressData.episodeDisplayTitle,
+            progress: progressData.progress,
+            progressSpeed: progressData.progressSpeed,
+            progressEta: progressData.progressEta
+          })
         }
       }
     },

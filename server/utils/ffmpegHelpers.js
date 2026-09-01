@@ -192,10 +192,52 @@ module.exports.downloadPodcastEpisode = (podcastEpisodeDownload) => {
       ffmpeg.outputOptions('-c:a', 'copy', '-map', '0:a', '-metadata', 'podcast=1')
     }
 
-    /** @type {import('../models/Podcast')} */
     const podcast = podcastEpisodeDownload.libraryItem.media
     const podcastEpisode = podcastEpisodeDownload.rssPodcastEpisode
     const finalSizeInBytes = Number(podcastEpisode.enclosure?.length || 0)
+
+    // Stream download progress tracking
+    const totalBytes = finalSizeInBytes || parseInt(response.headers?.['content-length'], 10) || 0
+    let downloadedBytes = 0
+    let lastTime = Date.now()
+    let lastBytes = 0
+    let lastEmitTime = 0
+
+    response.data.on('data', (chunk) => {
+      downloadedBytes += chunk.length
+      const now = Date.now()
+      if (now - lastEmitTime >= 300 || (totalBytes && downloadedBytes >= totalBytes)) {
+        const timeDiff = (now - lastTime) / 1000
+        const bytesDiff = downloadedBytes - lastBytes
+        let speedStr = null
+        if (timeDiff > 0 && bytesDiff > 0) {
+          const bytesPerSec = bytesDiff / timeDiff
+          if (bytesPerSec >= 1024 * 1024 * 1024) speedStr = `${(bytesPerSec / (1024 * 1024 * 1024)).toFixed(2)} GiB/s`
+          else if (bytesPerSec >= 1024 * 1024) speedStr = `${(bytesPerSec / (1024 * 1024)).toFixed(2)} MiB/s`
+          else if (bytesPerSec >= 1024) speedStr = `${(bytesPerSec / 1024).toFixed(2)} KiB/s`
+          else speedStr = `${Math.round(bytesPerSec)} B/s`
+        }
+        const percent = totalBytes ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100)) : null
+        let etaStr = null
+        if (percent && totalBytes && timeDiff > 0 && bytesDiff > 0) {
+          const remainingBytes = totalBytes - downloadedBytes
+          const remainingSecs = Math.round(remainingBytes / (bytesDiff / timeDiff))
+          if (remainingSecs >= 0 && isFinite(remainingSecs)) {
+            const mins = Math.floor(remainingSecs / 60)
+            const secs = remainingSecs % 60
+            etaStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+          }
+        }
+
+        if (typeof podcastEpisodeDownload?.onProgress === 'function') {
+          podcastEpisodeDownload.onProgress({ percent, speed: speedStr, eta: etaStr })
+        }
+
+        lastTime = now
+        lastBytes = downloadedBytes
+        lastEmitTime = now
+      }
+    })
 
     const taggings = {
       album: podcast.title,
