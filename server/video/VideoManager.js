@@ -1,15 +1,52 @@
 const childProcess = require('child_process')
 const Path = require('path')
+const axios = require('axios')
 const Logger = require('../Logger')
 const which = require('../utils/which')
 const { extractEpisodeNumbers } = require('./VideoEpisodeMatcher')
 const { VideoMimeType } = require('../utils/constants')
 const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
+const { xmlToJSON } = require('../utils')
 
 class VideoManager {
   constructor() {
     this.ytDlpPath = null
     this.isAvailable = false
+  }
+
+  /**
+   * Fetch official YouTube Atom RSS feed to get exact publish dates for latest channel/playlist videos
+   * @param {string|null} channelId
+   * @param {string|null} [playlistId]
+   * @returns {Promise<Record<string, { publishedAt: number, pubDate: string }>>}
+   */
+  async fetchYouTubeFeedDates(channelId, playlistId = null) {
+    if (!channelId && !playlistId) return {}
+    try {
+      const feedUrl = playlistId
+        ? `https://www.youtube.com/feeds/videos.xml?playlist_id=${playlistId}`
+        : `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`
+      const res = await axios.get(feedUrl, { timeout: 4000 })
+      const json = await xmlToJSON(res.data)
+      const dateMap = {}
+      const entries = json?.feed?.entry
+      if (Array.isArray(entries)) {
+        for (const entry of entries) {
+          const videoId = entry['yt:videoId']?.[0] || entry['id']?.[0]?.replace('yt:video:', '')
+          const published = entry['published']?.[0]
+          if (videoId && published) {
+            const { publishedAt, pubDate } = parseDateToTimestampAndString(published)
+            if (publishedAt) {
+              dateMap[videoId] = { publishedAt, pubDate }
+            }
+          }
+        }
+      }
+      return dateMap
+    } catch (err) {
+      Logger.debug(`[VideoManager] Failed to fetch YouTube Atom feed dates: ${err.message}`)
+      return {}
+    }
   }
 
   /**
@@ -314,6 +351,23 @@ class VideoManager {
   async getChannelFeed(url, limit = null) {
     if (!this.isAvailable) throw new Error('yt-dlp is not available')
 
+    let fetchUrl = url
+    if (fetchUrl.includes('youtube.com/') || fetchUrl.includes('youtu.be/')) {
+      const cleanUrl = fetchUrl.split('?')[0].replace(/\/+$/, '')
+      if (
+        !cleanUrl.endsWith('/videos') &&
+        !cleanUrl.endsWith('/podcasts') &&
+        !cleanUrl.endsWith('/streams') &&
+        !cleanUrl.endsWith('/releases') &&
+        !cleanUrl.includes('/playlist') &&
+        !fetchUrl.includes('list=') &&
+        !cleanUrl.includes('/watch') &&
+        !cleanUrl.endsWith('.xml')
+      ) {
+        fetchUrl = `${cleanUrl}/videos`
+      }
+    }
+
     const args = [
       '--dump-json',
       '--no-download',
@@ -326,7 +380,7 @@ class VideoManager {
       args.push('--playlist-end', String(limit))
     }
 
-    args.push(url)
+    args.push(fetchUrl)
 
     return new Promise((resolve, reject) => {
       childProcess.execFile(
@@ -335,7 +389,7 @@ class VideoManager {
         {
           maxBuffer: 1024 * 1024 * 50
         },
-        (error, stdout) => {
+        async (error, stdout) => {
           if (error) return reject(error)
 
           const entries = stdout
@@ -367,6 +421,10 @@ class VideoManager {
             type: 'episodic'
           }
 
+          const channelId = firstEntry.channel_id || firstEntry.playlist_channel_id || firstEntry.uploader_id || null
+          const playlistId = firstEntry.playlist_id && !firstEntry.playlist_id.startsWith('UC') ? firstEntry.playlist_id : null
+          const dateMap = await this.fetchYouTubeFeedDates(channelId, playlistId).catch(() => ({}))
+
           const episodes = entries.map((entry) => {
             const videoUrl = entry.url || (entry.id ? `https://www.youtube.com/watch?v=${entry.id}` : url)
             const rawDate =
@@ -391,6 +449,12 @@ class VideoManager {
               entry.modified_timestamp ||
               entry.start_time
             let { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
+
+            // If date is mapped from official YouTube Atom feed
+            if (entry.id && dateMap[entry.id]) {
+              publishedAt = publishedAt || dateMap[entry.id].publishedAt
+              pubDate = pubDate || dateMap[entry.id].pubDate
+            }
 
             // If date is still missing, attempt to extract a strict date from entry title
             if (!publishedAt || !pubDate) {
