@@ -19,7 +19,7 @@
         <p v-if="episode.episode" class="font-semibold text-gray-200">#{{ episode.episode }}</p>
         <p class="break-words mb-1">{{ episode.title }}</p>
         <p v-if="episode.subtitle" class="mb-1 text-sm text-gray-300 line-clamp-2">{{ episode.subtitle }}</p>
-        <p class="text-xs text-gray-400">Published {{ episode.publishedAt ? $dateDistanceFromNow(episode.publishedAt) : 'Unknown' }}</p>
+        <p class="text-xs text-gray-400">Published {{ episode.publishedAt ? $dateDistanceFromNow(episode.publishedAt) : (episode.pubDate ? episode.pubDate : 'Unknown') }}</p>
       </div>
     </template>
   </div>
