@@ -294,8 +294,10 @@ function matchYouTubeEpisodesWithItunesFeed(ytEpisodes, itunesEpisodes, options 
   })
 
   resultEpisodes.sort((a, b) => {
-    if (a.publishedAt && b.publishedAt && a.publishedAt !== b.publishedAt) {
-      return b.publishedAt - a.publishedAt
+    const aPub = a.publishedAt ? Number(a.publishedAt) : (a.pubDate ? new Date(a.pubDate).getTime() : 0)
+    const bPub = b.publishedAt ? Number(b.publishedAt) : (b.pubDate ? new Date(b.pubDate).getTime() : 0)
+    if (aPub && bPub && aPub !== bPub) {
+      return bPub - aPub
     }
     const hasAEp = a.episode != null && String(a.episode).trim() !== '' && !isNaN(Number(a.episode))
     const hasBEp = b.episode != null && String(b.episode).trim() !== '' && !isNaN(Number(b.episode))

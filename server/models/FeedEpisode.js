@@ -59,6 +59,21 @@ class FeedEpisode extends Model {
     const episodeId = existingEpisodeId || uuidv4()
     const mediaFile = episode.audioFile || episode.videoFile
     const ext = mediaFile?.metadata?.filename ? Path.extname(mediaFile.metadata.filename) : (episode.isVideo ? '.mp4' : '.mp3')
+
+    let pubDate = episode.pubDate
+    if (!pubDate && episode.publishedAt) {
+      const d = new Date(episode.publishedAt)
+      if (!isNaN(d.valueOf())) {
+        pubDate = d.toUTCString()
+      }
+    }
+    if (!pubDate && episode.createdAt) {
+      const d = new Date(episode.createdAt)
+      if (!isNaN(d.valueOf())) {
+        pubDate = d.toUTCString()
+      }
+    }
+
     return {
       id: episodeId,
       title: episode.title,
@@ -68,7 +83,7 @@ class FeedEpisode extends Model {
       enclosureURL: `/feed/${slug}/item/${episodeId}/media${ext}`,
       enclosureType: mediaFile?.mimeType || (episode.isVideo ? 'video/mp4' : 'audio/mpeg'),
       enclosureSize: mediaFile?.metadata?.size || 0,
-      pubDate: episode.pubDate,
+      pubDate,
       season: episode.season,
       episode: episode.episode,
       episodeType: episode.episodeType,
@@ -91,11 +106,27 @@ class FeedEpisode extends Model {
     const feedEpisodeObjs = []
     const podcastEpisodes = [...(libraryItemExpanded.media?.podcastEpisodes || [])]
 
-    // Sort podcastEpisodes by pubDate. episodic is newest to oldest. serial is oldest to newest.
+    const getEpDateMs = (ep) => {
+      if (ep.publishedAt) {
+        const t = typeof ep.publishedAt === 'number' ? ep.publishedAt : new Date(ep.publishedAt).getTime()
+        if (!isNaN(t) && t > 0) return t
+      }
+      if (ep.pubDate) {
+        const t = new Date(ep.pubDate).getTime()
+        if (!isNaN(t) && t > 0) return t
+      }
+      if (ep.createdAt) {
+        const t = new Date(ep.createdAt).getTime()
+        if (!isNaN(t) && t > 0) return t
+      }
+      return 0
+    }
+
+    // Sort podcastEpisodes by pubDate/publishedAt. episodic is newest to oldest. serial is oldest to newest.
     if (feed.podcastType === 'episodic') {
-      podcastEpisodes.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
+      podcastEpisodes.sort((a, b) => getEpDateMs(b) - getEpDateMs(a))
     } else {
-      podcastEpisodes.sort((a, b) => new Date(a.pubDate) - new Date(b.pubDate))
+      podcastEpisodes.sort((a, b) => getEpDateMs(a) - getEpDateMs(b))
     }
 
     let numExisting = 0
@@ -339,7 +370,7 @@ class FeedEpisode extends Model {
       url: `${hostPrefix}${this.siteURL}`,
       guid: `${hostPrefix}${this.enclosureURL}`,
       author: this.author,
-      date: this.pubDate,
+      date: this.pubDate || (this.createdAt ? new Date(this.createdAt).toUTCString() : null),
       enclosure: {
         url: `${hostPrefix}${this.enclosureURL}`,
         type: this.enclosureType,

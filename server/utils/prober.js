@@ -184,7 +184,7 @@ function parseTags(format, verbose) {
     file_tag_artist: tryGrabTags(format, 'artist', 'tpe1', 'tp1'),
     file_tag_artistsort: tryGrabTags(format, 'artist-sort', 'tsop'),
     file_tag_albumartist: tryGrabTags(format, 'albumartist', 'album_artist', 'tpe2'),
-    file_tag_date: tryGrabTags(format, 'date', 'tyer', 'tye'),
+    file_tag_date: tryGrabTags(format, 'date', 'tyer', 'tye', 'year', 'releasetime', 'tdrl', 'date_release', 'date_recorded', 'date_written', 'release_date', 'upload_date', 'creation_time', 'date_tagged'),
     file_tag_composer: tryGrabTags(format, 'composer', 'tcom', 'tcm'),
     file_tag_publisher: tryGrabTags(format, 'publisher', 'tpub', 'tpb'),
     file_tag_comment: tryGrabTags(format, 'comment', 'comm', 'com'),

@@ -265,5 +265,37 @@ describe('YtDlpManager', () => {
       expect(feed.episodes[0].publishedAt).to.equal(Date.UTC(2026, 0, 1))
       expect(feed.episodes[0].pubDate).to.equal('2026-01-01')
     })
+
+    it('should omit --playlist-end when limit is not specified', async () => {
+      const manager = new YtDlpManager()
+      manager.ytDlpPath = '/usr/bin/yt-dlp'
+      manager.isAvailable = true
+
+      let capturedArgs = null
+      sinon.stub(childProcess, 'execFile').callsFake((path, args, opts, callback) => {
+        capturedArgs = args
+        callback(null, JSON.stringify({ id: 'vid1', title: 'Ep 1' }), '')
+      })
+
+      await manager.getChannelFeed('https://www.youtube.com/playlist?list=PL123')
+      expect(capturedArgs).to.include('--flat-playlist')
+      expect(capturedArgs).to.not.include('--playlist-end')
+    })
+
+    it('should include --playlist-end when limit is specified', async () => {
+      const manager = new YtDlpManager()
+      manager.ytDlpPath = '/usr/bin/yt-dlp'
+      manager.isAvailable = true
+
+      let capturedArgs = null
+      sinon.stub(childProcess, 'execFile').callsFake((path, args, opts, callback) => {
+        capturedArgs = args
+        callback(null, JSON.stringify({ id: 'vid1', title: 'Ep 1' }), '')
+      })
+
+      await manager.getChannelFeed('https://www.youtube.com/playlist?list=PL123', 20)
+      expect(capturedArgs).to.include('--playlist-end')
+      expect(capturedArgs).to.include('20')
+    })
   })
 })
