@@ -308,20 +308,23 @@ class VideoManager {
   /**
    * Get channel/playlist entries as pseudo-RSS episodes
    * @param {string} url
-   * @param {number} [limit=50]
+   * @param {number|null} [limit=null]
    * @returns {Promise<{metadata: Object, episodes: Array}>}
    */
-  async getChannelFeed(url, limit = 50) {
+  async getChannelFeed(url, limit = null) {
     if (!this.isAvailable) throw new Error('yt-dlp is not available')
 
     const args = [
       '--dump-json',
       '--no-download',
-      '--flat-playlist',
-      '--playlist-end',
-      String(limit),
-      url
+      '--flat-playlist'
     ]
+
+    if (limit != null && Number(limit) > 0) {
+      args.push('--playlist-end', String(limit))
+    }
+
+    args.push(url)
 
     return new Promise((resolve, reject) => {
       childProcess.execFile(
@@ -364,9 +367,39 @@ class VideoManager {
 
           const episodes = entries.map((entry) => {
             const videoUrl = entry.url || (entry.id ? `https://www.youtube.com/watch?v=${entry.id}` : url)
-            const rawDate = entry.release_date || entry.upload_date || entry.modified_date || entry.datetime || entry.date
-            const rawTimestamp = entry.release_timestamp || entry.timestamp || entry.epoch
-            const { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
+            const rawDate =
+              entry.release_date ||
+              entry.upload_date ||
+              entry.published_at ||
+              entry.publish_date ||
+              entry.published_time ||
+              entry.publish_time ||
+              entry.pubDate ||
+              entry.pubdate ||
+              entry.publication_date ||
+              entry.modified_date ||
+              entry.datetime ||
+              entry.date ||
+              entry.release_year ||
+              entry.year
+            const rawTimestamp =
+              entry.release_timestamp ||
+              entry.timestamp ||
+              entry.published_timestamp ||
+              entry.modified_timestamp ||
+              entry.epoch ||
+              entry.start_time
+            let { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
+
+            // If date is still missing, attempt to extract date from entry title or description
+            if (!publishedAt || !pubDate) {
+              const fallbackDate = entry.title || entry.description || ''
+              const parsedFallback = parseDateToTimestampAndString(fallbackDate)
+              if (parsedFallback.publishedAt) {
+                publishedAt = publishedAt || parsedFallback.publishedAt
+                pubDate = pubDate || parsedFallback.pubDate
+              }
+            }
             const thumbnail = entry.thumbnails?.length
               ? entry.thumbnails[entry.thumbnails.length - 1].url
               : (entry.thumbnail || null)

@@ -265,10 +265,13 @@ class PodcastScanner {
                 }
               }
               if (res.infoJson) {
-                if (!ep.publishedAt && res.infoJson.publishedAt) {
+                if (res.infoJson.publishedAt && (!ep.publishedAt || !ep.pubDate)) {
                   ep.publishedAt = res.infoJson.publishedAt
-                  ep.pubDate = res.infoJson.pubDate
+                  ep.pubDate = res.infoJson.pubDate || ep.pubDate
                   ep.changed('publishedAt', true)
+                  ep.changed('pubDate', true)
+                } else if (res.infoJson.pubDate && !ep.pubDate) {
+                  ep.pubDate = res.infoJson.pubDate
                   ep.changed('pubDate', true)
                 }
                 if (!ep.description && res.infoJson.description) {
@@ -357,17 +360,60 @@ class PodcastScanner {
               matchingEpisode.chapters = res.probeData.chapters
               matchingEpisode.changed('chapters', true)
             }
+            if (res.infoJson) {
+              if (res.infoJson.publishedAt && (!matchingEpisode.publishedAt || !matchingEpisode.pubDate)) {
+                matchingEpisode.publishedAt = res.infoJson.publishedAt
+                matchingEpisode.pubDate = res.infoJson.pubDate || matchingEpisode.pubDate
+                matchingEpisode.changed('publishedAt', true)
+                matchingEpisode.changed('pubDate', true)
+              } else if (res.infoJson.pubDate && !matchingEpisode.pubDate) {
+                matchingEpisode.pubDate = res.infoJson.pubDate
+                matchingEpisode.changed('pubDate', true)
+              }
+              if (!matchingEpisode.description && res.infoJson.description) {
+                matchingEpisode.description = res.infoJson.description
+                matchingEpisode.changed('description', true)
+              }
+              if (!matchingEpisode.subtitle && res.infoJson.subtitle) {
+                matchingEpisode.subtitle = res.infoJson.subtitle
+                matchingEpisode.changed('subtitle', true)
+              }
+              if (!matchingEpisode.season && res.infoJson.season) {
+                matchingEpisode.season = res.infoJson.season
+                matchingEpisode.changed('season', true)
+              }
+              if (!matchingEpisode.episode && res.infoJson.episode) {
+                matchingEpisode.episode = res.infoJson.episode
+                matchingEpisode.changed('episode', true)
+              }
+              if (res.infoJson.extraData && !matchingEpisode.extraData?.guid) {
+                matchingEpisode.extraData = { ...(matchingEpisode.extraData || {}), ...res.infoJson.extraData }
+                matchingEpisode.changed('extraData', true)
+              }
+            }
             await matchingEpisode.save()
             hasEpisodeChanges = true
           } else {
+            let episodePubDate = infoJson?.pubDate || res.videoFile?.metaTags?.tagDate || null
+            let episodePublishedAt = infoJson?.publishedAt || null
+            if (!episodePublishedAt && episodePubDate) {
+              const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
+              const parsed = parseDateToTimestampAndString(episodePubDate)
+              if (parsed.publishedAt) episodePublishedAt = parsed.publishedAt
+            } else if (episodePublishedAt && !episodePubDate) {
+              const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
+              const parsed = parseDateToTimestampAndString(null, episodePublishedAt)
+              if (parsed.pubDate) episodePubDate = parsed.pubDate
+            }
+
             const newEpisode = {
               title: videoTitle,
               subtitle: infoJson?.subtitle || null,
               season,
               episode,
               episodeType: infoJson?.episodeType || 'full',
-              pubDate: infoJson?.pubDate || null,
-              publishedAt: infoJson?.publishedAt || null,
+              pubDate: episodePubDate,
+              publishedAt: episodePublishedAt,
               description: infoJson?.description || null,
               audioFile: null,
               videoFile: res.videoFile.toJSON(),
@@ -384,6 +430,46 @@ class PodcastScanner {
             hasEpisodeChanges = true
           }
         }
+      }
+    }
+
+    // Ensure all existing episodes have publishedAt and pubDate populated
+    for (const ep of existingPodcastEpisodes) {
+      let epChanged = false
+      const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
+      if (!ep.publishedAt && ep.pubDate) {
+        const parsed = parseDateToTimestampAndString(ep.pubDate)
+        if (parsed.publishedAt) {
+          ep.publishedAt = parsed.publishedAt
+          ep.changed('publishedAt', true)
+          epChanged = true
+        }
+      } else if (ep.publishedAt && !ep.pubDate) {
+        const parsed = parseDateToTimestampAndString(null, ep.publishedAt)
+        if (parsed.pubDate) {
+          ep.pubDate = parsed.pubDate
+          ep.changed('pubDate', true)
+          epChanged = true
+        }
+      }
+      if (!ep.publishedAt && !ep.pubDate) {
+        const mediaFile = ep.videoFile || ep.audioFile
+        const tagDate = mediaFile?.metaTags?.tagDate
+        const filename = mediaFile?.metadata?.filenameNoExt || mediaFile?.metadata?.filename
+        const parsedTag = tagDate ? parseDateToTimestampAndString(tagDate) : null
+        const parsedFilename = filename ? parseDateToTimestampAndString(filename) : null
+        const candidate = (parsedTag?.publishedAt ? parsedTag : null) || (parsedFilename?.publishedAt ? parsedFilename : null)
+        if (candidate?.publishedAt) {
+          ep.publishedAt = candidate.publishedAt
+          ep.pubDate = candidate.pubDate
+          ep.changed('publishedAt', true)
+          ep.changed('pubDate', true)
+          epChanged = true
+        }
+      }
+      if (epChanged) {
+        await ep.save()
+        hasEpisodeChanges = true
       }
     }
 
@@ -554,6 +640,22 @@ class PodcastScanner {
 
       // Set metadata and save new episode
       AudioFileScanner.setPodcastEpisodeMetadataFromAudioMetaTags(newEpisode, libraryScan)
+      const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
+      if (!newEpisode.publishedAt && newEpisode.pubDate) {
+        const parsed = parseDateToTimestampAndString(newEpisode.pubDate)
+        if (parsed.publishedAt) newEpisode.publishedAt = parsed.publishedAt
+      } else if (newEpisode.publishedAt && !newEpisode.pubDate) {
+        const parsed = parseDateToTimestampAndString(null, newEpisode.publishedAt)
+        if (parsed.pubDate) newEpisode.pubDate = parsed.pubDate
+      }
+      if (!newEpisode.publishedAt && !newEpisode.pubDate) {
+        const filename = audioFile.metadata?.filenameNoExt || audioFile.metadata?.filename
+        const parsedFilename = filename ? parseDateToTimestampAndString(filename) : null
+        if (parsedFilename?.publishedAt) {
+          newEpisode.publishedAt = parsedFilename.publishedAt
+          newEpisode.pubDate = parsedFilename.pubDate
+        }
+      }
       libraryScan.addLog(LogLevel.INFO, `New Podcast episode "${newEpisode.title}" found`)
       newPodcastEpisodes.push(newEpisode)
     }

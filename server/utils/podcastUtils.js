@@ -283,8 +283,21 @@ function extractEpisodeData(item) {
 }
 
 function cleanEpisodeData(data) {
-  const pubJsDate = data.pubDate ? new Date(data.pubDate) : null
-  const publishedAt = pubJsDate && !isNaN(pubJsDate) ? pubJsDate.valueOf() : null
+  let pubDate = data.pubDate || ''
+  let publishedAt = data.publishedAt || null
+  if (!publishedAt && pubDate) {
+    const pubJsDate = new Date(pubDate)
+    publishedAt = !isNaN(pubJsDate.valueOf()) ? pubJsDate.valueOf() : null
+  }
+  if (!pubDate && publishedAt) {
+    const pubJsDate = new Date(publishedAt)
+    if (!isNaN(pubJsDate.valueOf())) {
+      const year = pubJsDate.getUTCFullYear()
+      const month = String(pubJsDate.getUTCMonth() + 1).padStart(2, '0')
+      const day = String(pubJsDate.getUTCDate()).padStart(2, '0')
+      pubDate = `${year}-${month}-${day}`
+    }
+  }
   const enclosureType = data.enclosure?.type || ''
   const cleanEnclosureUrl = (data.enclosure?.url || data.url || '').split('?')[0].toLowerCase()
   const enclosureExt = cleanEnclosureUrl ? cleanEnclosureUrl.split('.').pop() : ''

@@ -76,9 +76,24 @@ class PodcastEpisode extends Model {
     const episodeType = rssPodcastEpisode?.episodeType || infoJson?.episodeType || 'full'
     const title = rssPodcastEpisode?.title || infoJson?.title || 'Untitled'
     const subtitle = rssPodcastEpisode?.subtitle || infoJson?.subtitle || null
-    const description = rssPodcastEpisode?.description || infoJson?.description || null
-    const pubDate = rssPodcastEpisode?.pubDate || infoJson?.pubDate || null
-    const publishedAt = rssPodcastEpisode?.publishedAt || infoJson?.publishedAt || null
+    let pubDate = rssPodcastEpisode?.pubDate || infoJson?.pubDate || null
+    let publishedAt = rssPodcastEpisode?.publishedAt || infoJson?.publishedAt || null
+
+    const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
+    if (!publishedAt && pubDate) {
+      const parsed = parseDateToTimestampAndString(pubDate)
+      if (parsed.publishedAt) publishedAt = parsed.publishedAt
+    } else if (publishedAt && !pubDate) {
+      const parsed = parseDateToTimestampAndString(null, publishedAt)
+      if (parsed.pubDate) pubDate = parsed.pubDate
+    }
+
+    if (!publishedAt && !pubDate && mediaFile?.metaTags?.tagDate) {
+      const parsed = parseDateToTimestampAndString(mediaFile.metaTags.tagDate)
+      if (parsed.publishedAt) publishedAt = parsed.publishedAt
+      if (parsed.pubDate) pubDate = parsed.pubDate
+    }
+
     const thumbnail = rssPodcastEpisode?.thumbnail || infoJson?.thumbnail || null
 
     const extraData = {

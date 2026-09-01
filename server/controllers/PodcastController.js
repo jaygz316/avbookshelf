@@ -231,6 +231,7 @@ class PodcastController {
     const ytDlpManager = this.ytDlpManager || req.ytDlpManager || global.ytDlpManager
     const podcastManager = this.podcastManager || req.podcastManager
     const isYouTube = podcastManager ? podcastManager.isYouTubeFeed(url) : (url.includes('youtube.com/') || url.includes('youtu.be/'))
+    const limit = req.body.limit != null && !isNaN(req.body.limit) ? Number(req.body.limit) : null
 
     if (isYouTube) {
       if (!ytDlpManager?.isAvailable) {
@@ -239,7 +240,7 @@ class PodcastController {
       }
 
       try {
-        const feedData = await ytDlpManager.getChannelFeed(url)
+        const feedData = await ytDlpManager.getChannelFeed(url, limit)
         return res.json({ podcast: feedData })
       } catch (error) {
         Logger.error(`[PodcastController] Failed to fetch YouTube feed "${url}":`, error)
@@ -252,7 +253,7 @@ class PodcastController {
       // If standard RSS XML fails and yt-dlp is available, try yt-dlp as fallback
       if (ytDlpManager?.isAvailable) {
         try {
-          const feedData = await ytDlpManager.getChannelFeed(url)
+          const feedData = await ytDlpManager.getChannelFeed(url, limit)
           if (feedData?.episodes?.length) {
             return res.json({ podcast: feedData })
           }
@@ -522,9 +523,36 @@ class PodcastController {
         return res.status(400).json({ error: 'Failed to get video info from URL' })
       }
 
-      const rawDate = videoInfo.release_date || videoInfo.upload_date || videoInfo.modified_date || videoInfo.datetime || videoInfo.date
-      const rawTimestamp = videoInfo.release_timestamp || videoInfo.timestamp || videoInfo.epoch
-      const { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
+      const rawDate =
+        videoInfo.release_date ||
+        videoInfo.upload_date ||
+        videoInfo.published_at ||
+        videoInfo.publish_date ||
+        videoInfo.published_time ||
+        videoInfo.publish_time ||
+        videoInfo.pubDate ||
+        videoInfo.pubdate ||
+        videoInfo.publication_date ||
+        videoInfo.modified_date ||
+        videoInfo.datetime ||
+        videoInfo.date ||
+        videoInfo.release_year ||
+        videoInfo.year
+      const rawTimestamp =
+        videoInfo.release_timestamp ||
+        videoInfo.timestamp ||
+        videoInfo.published_timestamp ||
+        videoInfo.modified_timestamp ||
+        videoInfo.epoch ||
+        videoInfo.start_time
+      let { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
+      if (!publishedAt || !pubDate) {
+        const fallback = parseDateToTimestampAndString(videoInfo.title || videoInfo.description || '')
+        if (fallback.publishedAt) {
+          publishedAt = publishedAt || fallback.publishedAt
+          pubDate = pubDate || fallback.pubDate
+        }
+      }
       const extracted = extractEpisodeNumbers(videoInfo.title || '')
       const season = videoInfo.season_number != null ? String(videoInfo.season_number) : (extracted.season || '')
       const episodeNum = videoInfo.episode_number != null ? String(videoInfo.episode_number) : (extracted.episode || '')

@@ -30,6 +30,50 @@ describe('parseInfoJsonMetadata', () => {
       expect(res.pubDate).to.equal('2023-05-14')
     })
 
+    it('should parse YYYY-MM-DD, YYYY/MM/DD, and YYYY.MM.DD strings', () => {
+      const res1 = parseDateToTimestampAndString('2024-06-20')
+      expect(res1.pubDate).to.equal('2024-06-20')
+      expect(res1.publishedAt).to.equal(Date.UTC(2024, 5, 20))
+
+      const res2 = parseDateToTimestampAndString('2024/06/20')
+      expect(res2.pubDate).to.equal('2024-06-20')
+      expect(res2.publishedAt).to.equal(Date.UTC(2024, 5, 20))
+
+      const res3 = parseDateToTimestampAndString('2024.06.20')
+      expect(res3.pubDate).to.equal('2024-06-20')
+      expect(res3.publishedAt).to.equal(Date.UTC(2024, 5, 20))
+    })
+
+    it('should parse 4-digit year format', () => {
+      const res1 = parseDateToTimestampAndString('2025')
+      expect(res1.pubDate).to.equal('2025-01-01')
+      expect(res1.publishedAt).to.equal(Date.UTC(2025, 0, 1))
+
+      const res2 = parseDateToTimestampAndString(2025)
+      expect(res2.pubDate).to.equal('2025-01-01')
+      expect(res2.publishedAt).to.equal(Date.UTC(2025, 0, 1))
+    })
+
+    it('should parse string timestamp in seconds or ms', () => {
+      const res1 = parseDateToTimestampAndString('1684022400')
+      expect(res1.publishedAt).to.equal(1684022400000)
+      expect(res1.pubDate).to.equal('2023-05-14')
+
+      const res2 = parseDateToTimestampAndString('1684022400000')
+      expect(res2.publishedAt).to.equal(1684022400000)
+      expect(res2.pubDate).to.equal('2023-05-14')
+    })
+
+    it('should extract embedded date pattern from filename or title string', () => {
+      const res1 = parseDateToTimestampAndString('My Show - 2024-08-15 - Episode 1')
+      expect(res1.pubDate).to.equal('2024-08-15')
+      expect(res1.publishedAt).to.equal(Date.UTC(2024, 7, 15))
+
+      const res2 = parseDateToTimestampAndString('My Show 2024.08.15 Episode 1')
+      expect(res2.pubDate).to.equal('2024-08-15')
+      expect(res2.publishedAt).to.equal(Date.UTC(2024, 7, 15))
+    })
+
     it('should return null and empty string for invalid dates', () => {
       const res1 = parseDateToTimestampAndString(null)
       expect(res1.publishedAt).to.be.null
@@ -96,6 +140,25 @@ describe('parseInfoJsonMetadata', () => {
       expect(parsed.guid).to.equal('dQw4w9WgXcQ')
       expect(parsed.extraData.uploaderId).to.equal('@RickAstleyYT')
       expect(parsed.extraData.channelId).to.equal('UCuAXFkgsw1L7xaCfnd5JJOw')
+    })
+
+    it('should parse dates from published_at, release_date, and published_timestamp', () => {
+      const info1 = {
+        title: 'Video with published_at',
+        published_at: '2025-07-04T10:00:00Z'
+      }
+      const parsed1 = parseInfoJsonMetadata(info1)
+      expect(parsed1.pubDate).to.equal('2025-07-04')
+      expect(parsed1.publishedAt).to.equal(new Date('2025-07-04T10:00:00Z').valueOf())
+
+      const info2 = {
+        title: 'Video with release_date and release_timestamp',
+        release_date: '20250801',
+        release_timestamp: 1754049600
+      }
+      const parsed2 = parseInfoJsonMetadata(info2)
+      expect(parsed2.pubDate).to.equal('2025-08-01')
+      expect(parsed2.publishedAt).to.equal(1754049600000)
     })
 
     it('should extract episode number from title when not in json fields', () => {

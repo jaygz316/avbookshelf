@@ -41,14 +41,28 @@ class VideoScanner {
       const videoDir = Path.dirname(libraryFile.metadata.path)
       const filename = libraryFile.metadata.filename || Path.basename(libraryFile.metadata.path)
 
-      // Look for companion .info.json created by yt-dlp
-      const infoJsonPath1 = Path.join(videoDir, `${filenameNoExt}.info.json`)
-      const infoJsonPath2 = Path.join(videoDir, `${filename}.info.json`)
+      // Look for companion .info.json created by yt-dlp or other tools
+      const candidateJsonPaths = [
+        Path.join(videoDir, `${filenameNoExt}.info.json`),
+        Path.join(videoDir, `${filename}.info.json`),
+        Path.join(videoDir, `${filenameNoExt}.json`),
+        Path.join(videoDir, `${filename}.json`)
+      ]
+
+      // Check if filename contains a YouTube video ID (e.g. 11 characters like [dQw4w9WgXcQ])
+      const ytIdMatch = filenameNoExt.match(/(?:^|[\[\s_-])([a-zA-Z0-9_-]{11})(?:[\]\s_.-]|$)/)
+      if (ytIdMatch) {
+        const ytId = ytIdMatch[1]
+        candidateJsonPaths.push(Path.join(videoDir, `${ytId}.info.json`))
+        candidateJsonPaths.push(Path.join(videoDir, `${ytId}.json`))
+      }
+
       let infoJsonPathToUse = null
-      if (await fsExtra.pathExists(infoJsonPath1)) {
-        infoJsonPathToUse = infoJsonPath1
-      } else if (await fsExtra.pathExists(infoJsonPath2)) {
-        infoJsonPathToUse = infoJsonPath2
+      for (const candPath of candidateJsonPaths) {
+        if (await fsExtra.pathExists(candPath)) {
+          infoJsonPathToUse = candPath
+          break
+        }
       }
 
       if (infoJsonPathToUse) {
@@ -63,11 +77,12 @@ class VideoScanner {
         }
       }
 
+      if (!videoFile.metaTags) videoFile.metaTags = {}
+
       // Enrich videoFile.metaTags if .info.json is available
       if (infoJson) {
-        if (!videoFile.metaTags) videoFile.metaTags = {}
-        if (!videoFile.metaTags.tagTitle && infoJson.title) videoFile.metaTags.tagTitle = infoJson.title
-        if (!videoFile.metaTags.tagDate && infoJson.pubDate) videoFile.metaTags.tagDate = infoJson.pubDate
+        if (infoJson.title) videoFile.metaTags.tagTitle = infoJson.title
+        if (infoJson.pubDate) videoFile.metaTags.tagDate = infoJson.pubDate
         if (!videoFile.metaTags.tagDescription && infoJson.description) videoFile.metaTags.tagDescription = infoJson.description
         if (!videoFile.metaTags.tagComment && infoJson.description) videoFile.metaTags.tagComment = infoJson.description
         if (!videoFile.metaTags.tagArtist && infoJson.author) videoFile.metaTags.tagArtist = infoJson.author
@@ -80,6 +95,25 @@ class VideoScanner {
           videoFile.chapters = infoJson.chapters
         }
         videoFile.infoJson = infoJson
+      } else {
+        // When .info.json is missing, attempt to extract publication date from filename or container tags
+        if (!videoFile.metaTags.tagDate) {
+          const parsedFromFilename = parseDateToTimestampAndString(filenameNoExt)
+          if (parsedFromFilename.pubDate) {
+            videoFile.metaTags.tagDate = parsedFromFilename.pubDate
+          } else if (probeData.audioMetaTags?.tagDate) {
+            const parsedFromTag = parseDateToTimestampAndString(probeData.audioMetaTags.tagDate)
+            if (parsedFromTag.pubDate) {
+              videoFile.metaTags.tagDate = parsedFromTag.pubDate
+            }
+          } else if (libraryFile.metadata?.birthtimeMs || libraryFile.metadata?.mtimeMs) {
+            const fileTime = libraryFile.metadata.birthtimeMs || libraryFile.metadata.mtimeMs
+            const parsedFromFileTime = parseDateToTimestampAndString(null, fileTime)
+            if (parsedFromFileTime.pubDate) {
+              videoFile.metaTags.tagDate = parsedFromFileTime.pubDate
+            }
+          }
+        }
       }
 
       const thumbFilename = `${filenameNoExt}-thumb.jpg`
@@ -159,10 +193,13 @@ class VideoScanner {
           AudioFileScanner.setPodcastEpisodeMetadataFromAudioMetaTags(podcastEpisode, libraryScan)
 
           if (res.infoJson) {
-            if (!podcastEpisode.publishedAt && res.infoJson.publishedAt) {
+            if (res.infoJson.publishedAt && (!podcastEpisode.publishedAt || !podcastEpisode.pubDate)) {
               podcastEpisode.publishedAt = res.infoJson.publishedAt
-              podcastEpisode.pubDate = res.infoJson.pubDate
+              podcastEpisode.pubDate = res.infoJson.pubDate || podcastEpisode.pubDate
               podcastEpisode.changed('publishedAt', true)
+              podcastEpisode.changed('pubDate', true)
+            } else if (res.infoJson.pubDate && !podcastEpisode.pubDate) {
+              podcastEpisode.pubDate = res.infoJson.pubDate
               podcastEpisode.changed('pubDate', true)
             }
             if (!podcastEpisode.description && res.infoJson.description) {
@@ -276,10 +313,13 @@ class VideoScanner {
             matchingEpisode.changed('chapters', true)
           }
         }
-        if (!matchingEpisode.publishedAt && infoJson?.publishedAt) {
+        if (infoJson?.publishedAt && (!matchingEpisode.publishedAt || !matchingEpisode.pubDate)) {
           matchingEpisode.publishedAt = infoJson.publishedAt
-          matchingEpisode.pubDate = infoJson.pubDate
+          matchingEpisode.pubDate = infoJson.pubDate || matchingEpisode.pubDate
           matchingEpisode.changed('publishedAt', true)
+          matchingEpisode.changed('pubDate', true)
+        } else if (infoJson?.pubDate && !matchingEpisode.pubDate) {
+          matchingEpisode.pubDate = infoJson.pubDate
           matchingEpisode.changed('pubDate', true)
         }
         if (!matchingEpisode.description && infoJson?.description) {
@@ -307,14 +347,24 @@ class VideoScanner {
         await matchingEpisode.save()
         hasChanges = true
       } else {
+        let episodePubDate = infoJson?.pubDate || res.videoFile?.metaTags?.tagDate || null
+        let episodePublishedAt = infoJson?.publishedAt || null
+        if (!episodePublishedAt && episodePubDate) {
+          const parsed = parseDateToTimestampAndString(episodePubDate)
+          if (parsed.publishedAt) episodePublishedAt = parsed.publishedAt
+        } else if (episodePublishedAt && !episodePubDate) {
+          const parsed = parseDateToTimestampAndString(null, episodePublishedAt)
+          if (parsed.pubDate) episodePubDate = parsed.pubDate
+        }
+
         const newEpisode = {
           title: videoTitle,
           subtitle: infoJson?.subtitle || null,
           season,
           episode,
           episodeType: infoJson?.episodeType || 'full',
-          pubDate: infoJson?.pubDate || null,
-          publishedAt: infoJson?.publishedAt || null,
+          pubDate: episodePubDate,
+          publishedAt: episodePublishedAt,
           description: infoJson?.description || null,
           audioFile: null,
           videoFile: res.videoFile.toJSON(),
@@ -392,8 +442,10 @@ class VideoScanner {
             existingMatchingEp.chapters = infoJson.chapters
           }
         }
-        if (!existingMatchingEp.publishedAt && infoJson?.publishedAt) {
+        if (infoJson?.publishedAt && (!existingMatchingEp.publishedAt || !existingMatchingEp.pubDate)) {
           existingMatchingEp.publishedAt = infoJson.publishedAt
+          existingMatchingEp.pubDate = infoJson.pubDate || existingMatchingEp.pubDate
+        } else if (infoJson?.pubDate && !existingMatchingEp.pubDate) {
           existingMatchingEp.pubDate = infoJson.pubDate
         }
         if (!existingMatchingEp.description && infoJson?.description) {
@@ -414,14 +466,24 @@ class VideoScanner {
         AudioFileScanner.setPodcastEpisodeMetadataFromAudioMetaTags(existingMatchingEp, libraryScan)
         libraryScan.addLog(LogLevel.INFO, `Linked video file to existing podcast episode "${existingMatchingEp.title}"`)
       } else {
+        let episodePubDate = infoJson?.pubDate || videoFile.metaTags?.tagDate || null
+        let episodePublishedAt = infoJson?.publishedAt || null
+        if (!episodePublishedAt && episodePubDate) {
+          const parsed = parseDateToTimestampAndString(episodePubDate)
+          if (parsed.publishedAt) episodePublishedAt = parsed.publishedAt
+        } else if (episodePublishedAt && !episodePubDate) {
+          const parsed = parseDateToTimestampAndString(null, episodePublishedAt)
+          if (parsed.pubDate) episodePubDate = parsed.pubDate
+        }
+
         const newEpisode = {
           title: videoTitle,
           subtitle: infoJson?.subtitle || null,
           season,
           episode,
           episodeType: infoJson?.episodeType || 'full',
-          pubDate: infoJson?.pubDate || null,
-          publishedAt: infoJson?.publishedAt || null,
+          pubDate: episodePubDate,
+          publishedAt: episodePublishedAt,
           description: infoJson?.description || null,
           audioFile: null,
           videoFile: videoFile.toJSON(),
