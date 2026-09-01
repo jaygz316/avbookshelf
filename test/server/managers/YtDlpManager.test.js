@@ -271,15 +271,16 @@ describe('YtDlpManager', () => {
       manager.ytDlpPath = '/usr/bin/yt-dlp'
       manager.isAvailable = true
 
-      let capturedArgs = null
+      const allCapturedArgs = []
       sinon.stub(childProcess, 'execFile').callsFake((path, args, opts, callback) => {
-        capturedArgs = args
+        allCapturedArgs.push(args)
         callback(null, JSON.stringify({ id: 'vid1', title: 'Ep 1' }), '')
       })
 
       await manager.getChannelFeed('https://www.youtube.com/playlist?list=PL123')
-      expect(capturedArgs).to.include('--flat-playlist')
-      expect(capturedArgs).to.not.include('--playlist-end')
+      // First call should be the flat-playlist call
+      expect(allCapturedArgs[0]).to.include('--flat-playlist')
+      expect(allCapturedArgs[0]).to.not.include('--playlist-end')
     })
 
     it('should include --playlist-end when limit is specified', async () => {
@@ -287,15 +288,16 @@ describe('YtDlpManager', () => {
       manager.ytDlpPath = '/usr/bin/yt-dlp'
       manager.isAvailable = true
 
-      let capturedArgs = null
+      const allCapturedArgs = []
       sinon.stub(childProcess, 'execFile').callsFake((path, args, opts, callback) => {
-        capturedArgs = args
+        allCapturedArgs.push(args)
         callback(null, JSON.stringify({ id: 'vid1', title: 'Ep 1' }), '')
       })
 
       await manager.getChannelFeed('https://www.youtube.com/playlist?list=PL123', 20)
-      expect(capturedArgs).to.include('--playlist-end')
-      expect(capturedArgs).to.include('20')
+      // First call should be the flat-playlist call with --playlist-end
+      expect(allCapturedArgs[0]).to.include('--playlist-end')
+      expect(allCapturedArgs[0]).to.include('20')
     })
   })
 })
