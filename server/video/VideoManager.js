@@ -343,6 +343,47 @@ class VideoManager {
   }
 
   /**
+   * Helper to execute yt-dlp with arguments and return parsed JSON lines
+   * @param {string[]} args
+   * @returns {Promise<Array<Object>>}
+   */
+  execYtDlp(args) {
+    return new Promise((resolve, reject) => {
+      childProcess.execFile(
+        this.ytDlpPath,
+        args,
+        {
+          maxBuffer: 1024 * 1024 * 50
+        },
+        (error, stdout, stderr) => {
+          if (error) {
+            return reject(new Error(stderr || error.message))
+          }
+
+          const entries = stdout
+            .trim()
+            .split('\n')
+            .filter((line) => line.trim())
+            .map((line) => {
+              try {
+                return JSON.parse(line)
+              } catch {
+                return null
+              }
+            })
+            .filter(Boolean)
+
+          if (!entries.length) {
+            return reject(new Error('No entries found'))
+          }
+
+          resolve(entries)
+        }
+      )
+    })
+  }
+
+  /**
    * Get channel/playlist entries as pseudo-RSS episodes
    * @param {string} url
    * @param {number|null} [limit=null]
@@ -368,62 +409,60 @@ class VideoManager {
       }
     }
 
-    const args = [
-      '--dump-json',
-      '--no-download',
-      '--flat-playlist',
-      '--extractor-args',
-      'youtubetab:approximate_date'
-    ]
+    let entries = null
 
-    if (limit != null && Number(limit) > 0) {
-      args.push('--playlist-end', String(limit))
+    // Strategy 1: Normalized fetchUrl with youtubetab:approximate_date
+    try {
+      const args1 = ['--dump-json', '--no-download', '--flat-playlist', '--extractor-args', 'youtubetab:approximate_date']
+      if (limit != null && Number(limit) > 0) args1.push('--playlist-end', String(limit))
+      args1.push(fetchUrl)
+      entries = await this.execYtDlp(args1)
+    } catch (err1) {
+      Logger.debug(`[VideoManager] getChannelFeed strategy 1 failed for "${fetchUrl}": ${err1.message}`)
     }
 
-    args.push(fetchUrl)
+    // Strategy 2: Original URL with youtubetab:approximate_date (if fetchUrl was different)
+    if (!entries?.length && fetchUrl !== url) {
+      try {
+        const args2 = ['--dump-json', '--no-download', '--flat-playlist', '--extractor-args', 'youtubetab:approximate_date']
+        if (limit != null && Number(limit) > 0) args2.push('--playlist-end', String(limit))
+        args2.push(url)
+        entries = await this.execYtDlp(args2)
+      } catch (err2) {
+        Logger.debug(`[VideoManager] getChannelFeed strategy 2 failed for "${url}": ${err2.message}`)
+      }
+    }
 
-    return new Promise((resolve, reject) => {
-      childProcess.execFile(
-        this.ytDlpPath,
-        args,
-        {
-          maxBuffer: 1024 * 1024 * 50
-        },
-        async (error, stdout) => {
-          if (error) return reject(error)
+    // Strategy 3: Original URL without extractor-args
+    if (!entries?.length) {
+      try {
+        const args3 = ['--dump-json', '--no-download', '--flat-playlist']
+        if (limit != null && Number(limit) > 0) args3.push('--playlist-end', String(limit))
+        args3.push(url)
+        entries = await this.execYtDlp(args3)
+      } catch (err3) {
+        Logger.error(`[VideoManager] getChannelFeed all strategies failed for "${url}": ${err3.message}`)
+        throw err3
+      }
+    }
 
-          const entries = stdout
-            .trim()
-            .split('\n')
-            .filter((line) => line.trim())
-            .map((line) => {
-              try {
-                return JSON.parse(line)
-              } catch {
-                return null
-              }
-            })
-            .filter(Boolean)
+    const firstEntry = entries[0]
+    const image = firstEntry.playlist_thumbnails?.[0]?.url || (firstEntry.thumbnails?.length ? firstEntry.thumbnails[firstEntry.thumbnails.length - 1].url : null) || firstEntry.thumbnail || ''
 
-          if (!entries.length) return reject(new Error('No entries found'))
+    const metadata = {
+      title: firstEntry.playlist_title || firstEntry.channel || firstEntry.uploader || firstEntry.title || 'Unknown',
+      author: firstEntry.channel || firstEntry.uploader || '',
+      description: firstEntry.playlist_description || firstEntry.description || '',
+      descriptionPlain: firstEntry.playlist_description || firstEntry.description || '',
+      image,
+      feedUrl: url,
+      feedType: 'youtube',
+      type: 'episodic'
+    }
 
-          const firstEntry = entries[0]
-          const image = firstEntry.playlist_thumbnails?.[0]?.url || (firstEntry.thumbnails?.length ? firstEntry.thumbnails[firstEntry.thumbnails.length - 1].url : null) || firstEntry.thumbnail || ''
-
-          const metadata = {
-            title: firstEntry.playlist_title || firstEntry.channel || firstEntry.uploader || firstEntry.title || 'Unknown',
-            author: firstEntry.channel || firstEntry.uploader || '',
-            description: firstEntry.playlist_description || firstEntry.description || '',
-            descriptionPlain: firstEntry.playlist_description || firstEntry.description || '',
-            image,
-            feedUrl: url,
-            feedType: 'youtube',
-            type: 'episodic'
-          }
-
-          const channelId = firstEntry.channel_id || firstEntry.playlist_channel_id || firstEntry.uploader_id || null
-          const playlistId = firstEntry.playlist_id && !firstEntry.playlist_id.startsWith('UC') ? firstEntry.playlist_id : null
-          const dateMap = await this.fetchYouTubeFeedDates(channelId, playlistId).catch(() => ({}))
+    const channelId = firstEntry.channel_id || firstEntry.playlist_channel_id || firstEntry.uploader_id || null
+    const playlistId = firstEntry.playlist_id && !firstEntry.playlist_id.startsWith('UC') ? firstEntry.playlist_id : null
+    const dateMap = await this.fetchYouTubeFeedDates(channelId, playlistId).catch(() => ({}))
 
           const episodes = entries.map((entry) => {
             const videoUrl = entry.url || (entry.id ? `https://www.youtube.com/watch?v=${entry.id}` : url)
@@ -525,12 +564,9 @@ class VideoManager {
                 categories
               }
             }
-          })
+        })
 
-          resolve({ metadata, episodes, numEpisodes: episodes.length })
-        }
-      )
-    })
+    return { metadata, episodes, numEpisodes: episodes.length }
   }
 }
 
