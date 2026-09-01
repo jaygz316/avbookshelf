@@ -57,21 +57,23 @@ class FeedEpisode extends Model {
    */
   static getFeedEpisodeObjFromPodcastEpisode(libraryItemExpanded, feed, slug, episode, existingEpisodeId = null) {
     const episodeId = existingEpisodeId || uuidv4()
+    const mediaFile = episode.audioFile || episode.videoFile
+    const ext = mediaFile?.metadata?.filename ? Path.extname(mediaFile.metadata.filename) : (episode.isVideo ? '.mp4' : '.mp3')
     return {
       id: episodeId,
       title: episode.title,
       author: feed.author,
       description: episode.description,
       siteURL: feed.siteURL,
-      enclosureURL: `/feed/${slug}/item/${episodeId}/media${Path.extname(episode.audioFile.metadata.filename)}`,
-      enclosureType: episode.audioFile.mimeType,
-      enclosureSize: episode.audioFile.metadata.size,
+      enclosureURL: `/feed/${slug}/item/${episodeId}/media${ext}`,
+      enclosureType: mediaFile?.mimeType || (episode.isVideo ? 'video/mp4' : 'audio/mpeg'),
+      enclosureSize: mediaFile?.metadata?.size || 0,
       pubDate: episode.pubDate,
       season: episode.season,
       episode: episode.episode,
       episodeType: episode.episodeType,
-      duration: episode.audioFile.duration,
-      filePath: episode.audioFile.metadata.path,
+      duration: mediaFile?.duration || 0,
+      filePath: mediaFile?.metadata?.path || '',
       explicit: libraryItemExpanded.media.explicit,
       feedId: feed.id
     }
@@ -97,9 +99,10 @@ class FeedEpisode extends Model {
 
     let numExisting = 0
     for (const episode of libraryItemExpanded.media.podcastEpisodes) {
+      const mediaFilePath = episode.audioFile?.metadata?.path || episode.videoFile?.metadata?.path
       // Check for existing episode by filepath
       const existingEpisode = feed.feedEpisodes?.find((feedEpisode) => {
-        return feedEpisode.filePath === episode.audioFile.metadata.path
+        return mediaFilePath && feedEpisode.filePath === mediaFilePath
       })
       numExisting = existingEpisode ? numExisting + 1 : numExisting
 

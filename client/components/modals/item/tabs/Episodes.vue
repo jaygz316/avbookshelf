@@ -30,7 +30,12 @@
             <p>{{ episode.episode }}</p>
           </td>
           <td dir="auto">
-            {{ episode.title }}
+            <div class="flex items-center">
+              <span>{{ episode.title }}</span>
+              <ui-tooltip v-if="episode.episodeMediaType === 'video' || episode.videoFile" text="Video" direction="top">
+                <span class="material-symbols text-yellow-400 text-base ml-1.5">videocam</span>
+              </ui-tooltip>
+            </div>
           </td>
           <td class="font-mono text-center">
             {{ $secondsToTimestamp(episode.duration) }}

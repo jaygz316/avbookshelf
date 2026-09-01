@@ -7,13 +7,14 @@ const Database = require('../Database')
 const fs = require('../libs/fsExtra')
 const cron = require('../libs/nodeCron')
 
-const { getPodcastFeed, findMatchingEpisodes } = require('../utils/podcastUtils')
+const { getPodcastFeed, findMatchingEpisodes, matchYouTubeEpisodesWithItunesFeed } = require('../utils/podcastUtils')
 const { getFileTimestampsWithIno, filePathToPOSIX, isSameOrSubPath } = require('../utils/fileUtils')
 const { validateUrl } = require('../utils/index')
 const htmlSanitizer = require('../utils/htmlSanitizer')
 
 const Scanner = require('../scanner/Scanner')
 const CoverManager = require('../managers/CoverManager')
+const PodcastFinder = require('../finders/PodcastFinder')
 
 /**
  * @typedef RequestUserObject
@@ -86,6 +87,23 @@ class PodcastController {
     if (existingLibraryItem) {
       Logger.error(`[PodcastController] Podcast already exists at path "${podcastPath}"`)
       return res.status(400).send('Podcast already exists')
+    }
+
+    // Check if a podcast with this feedURL already exists in the library
+    if (payload.media?.metadata?.feedUrl) {
+      const existingPodcastByFeed = await Database.podcastModel.findOne({
+        where: {
+          feedURL: payload.media.metadata.feedUrl
+        },
+        include: {
+          model: Database.libraryItemModel,
+          where: { libraryId: library.id }
+        }
+      })
+      if (existingPodcastByFeed) {
+        Logger.warn(`[PodcastController] Podcast with feedURL "${payload.media.metadata.feedUrl}" already exists in library`)
+        return res.status(400).send('A podcast with this feed URL already exists in this library')
+      }
     }
 
     const success = await fs
@@ -208,11 +226,99 @@ class PodcastController {
       return res.status(400).send('Invalid request body. "rssFeed" must be a valid URL')
     }
 
+    const ytDlpManager = this.ytDlpManager || req.ytDlpManager || global.ytDlpManager
+    const podcastManager = this.podcastManager || req.podcastManager
+    const isYouTube = podcastManager ? podcastManager.isYouTubeFeed(url) : (url.includes('youtube.com/') || url.includes('youtu.be/'))
+
+    if (isYouTube) {
+      if (!ytDlpManager?.isAvailable) {
+        Logger.warn(`[PodcastController] yt-dlp is not available to fetch YouTube feed "${url}"`)
+        return res.status(503).send('yt-dlp is not available on this server')
+      }
+
+      try {
+        const feedData = await ytDlpManager.getChannelFeed(url)
+        return res.json({ podcast: feedData })
+      } catch (error) {
+        Logger.error(`[PodcastController] Failed to fetch YouTube feed "${url}":`, error)
+        return res.status(404).send('Failed to fetch YouTube feed: ' + (error.message || 'Unknown error'))
+      }
+    }
+
     const podcast = await getPodcastFeed(url)
     if (!podcast) {
+      // If standard RSS XML fails and yt-dlp is available, try yt-dlp as fallback
+      if (ytDlpManager?.isAvailable) {
+        try {
+          const feedData = await ytDlpManager.getChannelFeed(url)
+          if (feedData?.episodes?.length) {
+            return res.json({ podcast: feedData })
+          }
+        } catch (ytErr) {
+          Logger.debug(`[PodcastController] yt-dlp fallback failed for "${url}": ${ytErr.message}`)
+        }
+      }
       return res.status(404).send('Podcast RSS feed request failed or invalid response data')
     }
     res.json({ podcast })
+  }
+
+  /**
+   * POST: /api/podcasts/feed/match-itunes
+   * Match YouTube feed episodes with an iTunes podcast RSS feed
+   *
+   * @param {RequestWithUser} req
+   * @param {Response} res
+   */
+  async matchFeedEpisodes(req, res) {
+    if (!req.user.isAdminOrUp) {
+      Logger.error(`[PodcastController] Non-admin user "${req.user.username}" attempted to match feed episodes`)
+      return res.sendStatus(403)
+    }
+
+    const { episodes, itunesFeedUrl, itunesId, podcastTitle } = req.body
+    if (!Array.isArray(episodes) || !episodes.length) {
+      return res.status(400).send('Invalid request body. "episodes" must be a non-empty array')
+    }
+
+    let feedUrlToUse = itunesFeedUrl ? validateUrl(itunesFeedUrl) : null
+    let itunesPodcast = null
+
+    if (!feedUrlToUse && itunesId) {
+      itunesPodcast = await PodcastFinder.lookup(itunesId)
+      if (itunesPodcast?.feedUrl) {
+        feedUrlToUse = validateUrl(itunesPodcast.feedUrl)
+      }
+    }
+
+    if (!feedUrlToUse) {
+      return res.status(400).send('Invalid request body. Valid "itunesFeedUrl" or "itunesId" is required')
+    }
+
+    const itunesFeed = await getPodcastFeed(feedUrlToUse)
+    if (!itunesFeed || !itunesFeed.episodes?.length) {
+      return res.status(404).send('Failed to fetch iTunes podcast RSS feed or feed has no episodes')
+    }
+
+    const titleForMatching = podcastTitle || itunesFeed.metadata?.title || ''
+    const matchResult = matchYouTubeEpisodesWithItunesFeed(episodes, itunesFeed.episodes, { podcastTitle: titleForMatching })
+
+    const metadata = {
+      ...itunesFeed.metadata
+    }
+    if (req.body.feedUrl) metadata.feedUrl = req.body.feedUrl
+    if (req.body.feedType) metadata.feedType = req.body.feedType
+
+    return res.json({
+      podcast: {
+        metadata,
+        episodes: matchResult.matchedEpisodes,
+        numEpisodes: matchResult.matchedEpisodes.length
+      },
+      itunesPodcast,
+      matchedCount: matchResult.matchedCount,
+      totalCount: matchResult.totalCount
+    })
   }
 
   /**
@@ -380,6 +486,67 @@ class PodcastController {
   }
 
   /**
+   * POST: /api/podcasts/:id/download-yt-episode
+   * Download a single YouTube/yt-dlp video into an existing podcast
+   *
+   * @this {import('../routers/ApiRouter')}
+   *
+   * @param {RequestWithLibraryItem} req
+   * @param {Response} res
+   */
+  async downloadYtDlpEpisode(req, res) {
+    if (!req.user.isAdminOrUp) {
+      Logger.error(`[PodcastController] Non-admin user "${req.user.username}" attempted to download yt episode`)
+      return res.sendStatus(403)
+    }
+
+    const { url, quality } = req.body
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ error: 'URL is required' })
+    }
+
+    const ytDlpManager = this.ytDlpManager || req.ytDlpManager
+    if (!ytDlpManager?.isAvailable) {
+      return res.status(503).json({ error: 'yt-dlp is not available on this server' })
+    }
+
+    const videoInfo = await ytDlpManager.getVideoInfo(url).catch((err) => {
+      Logger.error(`[PodcastController] Failed to get video info from URL "${url}"`, err)
+      return null
+    })
+
+    if (!videoInfo) {
+      return res.status(400).json({ error: 'Failed to get video info from URL' })
+    }
+
+    const episode = {
+      title: videoInfo.title,
+      subtitle: '',
+      description: videoInfo.description || '',
+      descriptionPlain: videoInfo.description || '',
+      pubDate: videoInfo.upload_date || '',
+      episodeType: 'full',
+      season: '',
+      episode: '',
+      author: videoInfo.uploader || videoInfo.channel || '',
+      duration: videoInfo.duration ? String(videoInfo.duration) : '',
+      durationSeconds: videoInfo.duration ? Number(videoInfo.duration) : null,
+      explicit: '',
+      enclosure: { url, type: 'video/mp4' },
+      publishedAt: videoInfo.timestamp ? videoInfo.timestamp * 1000 : (ytDlpManager.parseUploadDate(videoInfo.upload_date) || Date.now()),
+      guid: videoInfo.id || url,
+      isVideo: true,
+      isYtDlp: true,
+      quality: quality || req.libraryItem?.media?.maxDownloadResolution || 'best_compatible',
+      thumbnail: videoInfo.thumbnail || null
+    }
+
+    const podcastManager = this.podcastManager || req.podcastManager
+    await podcastManager.downloadPodcastEpisodes(req.libraryItem, [episode], false)
+    res.json({ queued: true, title: videoInfo.title })
+  }
+
+  /**
    * POST: /api/podcasts/:id/match-episodes
    *
    * @this {import('../routers/ApiRouter')}
@@ -510,16 +677,18 @@ class PodcastController {
     req.libraryItem.media.podcastEpisodes = req.libraryItem.media.podcastEpisodes.filter((ep) => ep.id !== episodeId)
 
     if (hardDelete) {
-      const audioFile = episode.audioFile
-      // TODO: this will trigger the watcher. should maybe handle this gracefully
-      await fs
-        .remove(audioFile.metadata.path)
-        .then(() => {
-          Logger.info(`[PodcastController] Hard deleted episode file at "${audioFile.metadata.path}"`)
-        })
-        .catch((error) => {
-          Logger.error(`[PodcastController] Failed to hard delete episode file at "${audioFile.metadata.path}"`, error)
-        })
+      const mediaFile = episode.audioFile || episode.videoFile
+      if (mediaFile?.metadata?.path) {
+        // TODO: this will trigger the watcher. should maybe handle this gracefully
+        await fs
+          .remove(mediaFile.metadata.path)
+          .then(() => {
+            Logger.info(`[PodcastController] Hard deleted episode file at "${mediaFile.metadata.path}"`)
+          })
+          .catch((error) => {
+            Logger.error(`[PodcastController] Failed to hard delete episode file at "${mediaFile.metadata.path}"`, error)
+          })
+      }
     }
 
     // Remove episode from playlists
@@ -539,9 +708,12 @@ class PodcastController {
     await episode.destroy()
 
     // Remove library file
-    req.libraryItem.libraryFiles = req.libraryItem.libraryFiles.filter((file) => file.ino !== episode.audioFile.ino)
-    req.libraryItem.changed('libraryFiles', true)
-    await req.libraryItem.save()
+    const fileIno = episode.audioFile?.ino || episode.videoFile?.ino
+    if (fileIno) {
+      req.libraryItem.libraryFiles = req.libraryItem.libraryFiles.filter((file) => file.ino !== fileIno)
+      req.libraryItem.changed('libraryFiles', true)
+      await req.libraryItem.save()
+    }
 
     // update number of episodes
     req.libraryItem.media.numEpisodes = req.libraryItem.media.podcastEpisodes.length

@@ -935,7 +935,8 @@ class LibraryItem extends Model {
     if (this.isBook) {
       return this.media.audioFiles.find((af) => af.ino === ino)
     } else {
-      return this.media.podcastEpisodes.find((pe) => pe.audioFile?.ino === ino)?.audioFile
+      const episode = this.media.podcastEpisodes.find((pe) => pe.audioFile?.ino === ino || pe.videoFile?.ino === ino)
+      return episode ? (episode.audioFile || episode.videoFile) : null
     }
   }
 

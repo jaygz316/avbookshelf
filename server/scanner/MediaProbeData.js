@@ -43,21 +43,29 @@ class MediaProbeData {
   }
 
   setData(data) {
-    this.embeddedCoverArt = data.video_stream?.codec || null
+    const videoStream = data.video_stream
+    if (videoStream) {
+      const isCoverArt = videoStream.codec === 'mjpeg' || videoStream.codec === 'png' || (data.audio_stream && !videoStream.frame_rate)
+      this.embeddedCoverArt = isCoverArt ? videoStream.codec : null
+      this.videoStream = isCoverArt ? null : videoStream
+    } else {
+      this.embeddedCoverArt = null
+      this.videoStream = null
+    }
+
     this.format = data.format
     this.duration = data.duration
     this.size = data.size
 
     this.audioStream = data.audio_stream
-    this.videoStream = this.embeddedCoverArt ? null : data.video_stream || null
 
-    this.bitRate = this.audioStream.bit_rate || data.bit_rate
-    this.codec = this.audioStream.codec
-    this.timeBase = this.audioStream.time_base
-    this.language = this.audioStream.language
-    this.channelLayout = this.audioStream.channel_layout
-    this.channels = this.audioStream.channels
-    this.sampleRate = this.audioStream.sample_rate
+    this.bitRate = this.audioStream?.bit_rate || this.videoStream?.bit_rate || data.bit_rate || null
+    this.codec = this.audioStream?.codec || this.videoStream?.codec || null
+    this.timeBase = this.audioStream?.time_base || this.videoStream?.time_base || null
+    this.language = this.audioStream?.language || this.videoStream?.language || null
+    this.channelLayout = this.audioStream?.channel_layout || null
+    this.channels = this.audioStream?.channels || null
+    this.sampleRate = this.audioStream?.sample_rate || null
     this.chapters = data.chapters || []
 
     this.audioMetaTags = new AudioMetaTags()

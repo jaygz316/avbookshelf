@@ -358,7 +358,8 @@ class AudioFileScanner {
    * @param {import('./LibraryScan')} libraryScan
    */
   setPodcastMetadataFromAudioMetaTags(audioFile, podcastMetadata, libraryScan) {
-    const audioFileMetaTags = audioFile.metaTags
+    const audioFileMetaTags = audioFile?.metaTags
+    if (!audioFileMetaTags) return
 
     const MetadataMapArray = [
       {
@@ -450,7 +451,10 @@ class AudioFileScanner {
       }
     ]
 
-    const audioFileMetaTags = podcastEpisode.audioFile.metaTags
+    const mediaFile = podcastEpisode.audioFile || podcastEpisode.videoFile
+    const audioFileMetaTags = mediaFile?.metaTags
+    if (!audioFileMetaTags) return
+
     MetadataMapArray.forEach((mapping) => {
       let value = audioFileMetaTags[mapping.tag]
       let tagToUse = mapping.tag

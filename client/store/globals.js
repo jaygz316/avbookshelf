@@ -109,6 +109,13 @@ export const getters = {
   getPlaceholderCoverSrc: (state, getters, rootState, rootGetters) => {
     return `${rootState.routerBasePath}/book_placeholder.jpg`
   },
+  getEpisodeThumbnailSrc:
+    (state, getters, rootState, rootGetters) =>
+    (libraryItemId, episode) => {
+      const id = typeof libraryItemId === 'string' ? libraryItemId : episode?.libraryItemId || episode?.id || libraryItemId?.id
+      if (!id) return getters.getPlaceholderCoverSrc
+      return getters.getLibraryItemCoverSrcById(id)
+    },
   getIsBatchSelectingMediaItems: (state) => {
     return state.selectedMediaItems.length
   }

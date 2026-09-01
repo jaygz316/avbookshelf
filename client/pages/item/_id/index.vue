@@ -25,10 +25,13 @@
           <div class="flex justify-center">
             <div class="mb-4">
               <h1 class="text-2xl md:text-3xl font-semibold">
-                <div class="flex items-center">
+                <div class="flex items-center flex-wrap gap-1">
                   {{ title }}
                   <widgets-explicit-indicator v-if="isExplicit" />
                   <widgets-abridged-indicator v-if="isAbridged" />
+                  <span v-if="isPodcast && (isYouTubeFeed || hasVideoEpisodes)" class="ml-2 px-2 py-0.5 text-xs bg-red-600 text-white rounded font-medium inline-flex items-center gap-1">
+                    <span class="material-symbols text-sm">smart_display</span> {{ isYouTubeFeed ? ($strings.LabelYouTubeFeed || 'YouTube Feed') : ($strings.LabelVideoPodcast || 'Video Podcast') }}
+                  </span>
                 </div>
               </h1>
 
@@ -60,10 +63,22 @@
           </div>
 
           <!-- Podcast episodes currently downloading -->
-          <div v-if="episodesDownloading.length" class="px-4 py-2 mt-4 bg-success/20 text-sm font-semibold rounded-md text-gray-100 relative max-w-max mx-auto md:mx-0">
-            <div v-for="episode in episodesDownloading" :key="episode.id" class="flex items-center">
-              <widgets-loading-spinner />
-              <p class="text-sm py-1 pl-4">{{ $strings.MessageDownloadingEpisode }} "{{ episode.episodeDisplayTitle }}"</p>
+          <div v-if="episodesDownloading.length" class="px-4 py-3 mt-4 bg-success/20 text-sm font-semibold rounded-md text-gray-100 relative max-w-sm mx-auto md:mx-0">
+            <div v-for="episode in episodesDownloading" :key="episode.id">
+              <div class="flex items-center justify-between mb-1">
+                <div class="flex items-center min-w-0">
+                  <widgets-loading-spinner class="shrink-0" />
+                  <p class="text-sm py-1 pl-3 truncate">{{ episode.episodeDisplayTitle || $strings.MessageDownloadingEpisode }}</p>
+                </div>
+                <div class="flex items-center gap-2 shrink-0 ml-2 text-xs">
+                  <span v-if="episode.progressSpeed" class="font-mono text-gray-300">{{ episode.progressSpeed }}</span>
+                  <span v-if="episode.progress != null" class="text-success font-bold">{{ Math.round(episode.progress) }}%</span>
+                </div>
+              </div>
+              <div v-if="episode.progress != null" class="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
+                <div class="h-full bg-success transition-all duration-300 rounded-full" :style="{ width: Math.round(episode.progress) + '%' }" />
+              </div>
+              <p v-else class="text-xs text-gray-400 mt-0.5">{{ $strings.MessageWaitingForProgress || 'Preparing download...' }}</p>
             </div>
           </div>
 
@@ -113,6 +128,11 @@
               <ui-icon-btn icon="search" class="mx-0.5" :aria-label="$strings.LabelFindEpisodes" :loading="fetchingRSSFeed" outlined @click="findEpisodesClick" />
             </ui-tooltip>
 
+            <!-- Download Video / YouTube from URL -->
+            <ui-tooltip v-if="isPodcast && userIsAdminOrUp" :text="$strings.LabelDownloadVideoFromUrl || 'Download Video from URL'" direction="top">
+              <ui-icon-btn icon="video_call" class="mx-0.5" :aria-label="$strings.LabelDownloadVideoFromUrl || 'Download Video from URL'" outlined @click="showDownloadVideoModal = true" />
+            </ui-tooltip>
+
             <ui-context-menu-dropdown v-if="contextMenuItems.length" :items="contextMenuItems" :menu-width="148" @action="contextMenuAction">
               <template #default="{ showMenu, clickShowMenu, disabled }">
                 <button type="button" :disabled="disabled" class="mx-0.5 icon-btn bg-primary border border-gray-600 w-9 h-9 rounded-md flex items-center justify-center relative" aria-haspopup="listbox" :aria-expanded="showMenu" :aria-label="$strings.LabelMore" @click.stop.prevent="clickShowMenu">
@@ -142,6 +162,7 @@
     </div>
 
     <modals-podcast-episode-feed v-model="showPodcastEpisodeFeed" :library-item="libraryItem" :episodes="podcastFeedEpisodes" :download-queue="episodeDownloadsQueued" :episodes-downloading="episodesDownloading" />
+    <modals-podcast-download-video-modal v-model="showDownloadVideoModal" :library-item="libraryItem" />
     <modals-bookmarks-modal v-model="showBookmarksModal" :bookmarks="bookmarks" :playback-rate="1" :library-item-id="libraryItemId" hide-create @select="selectBookmark" />
   </div>
 </template>
@@ -177,6 +198,7 @@ export default {
       isProcessingReadUpdate: false,
       fetchingRSSFeed: false,
       showPodcastEpisodeFeed: false,
+      showDownloadVideoModal: false,
       podcastFeedEpisodes: [],
       episodesDownloading: [],
       episodeDownloadsQueued: [],
@@ -197,6 +219,12 @@ export default {
     },
     userIsAdminOrUp() {
       return this.$store.getters['user/getIsAdminOrUp']
+    },
+    isYouTubeFeed() {
+      return this.media?.feedType === 'youtube' || this.mediaMetadata?.feedType === 'youtube' || (this.mediaMetadata?.feedUrl && (this.mediaMetadata.feedUrl.includes('youtube.com') || this.mediaMetadata.feedUrl.includes('youtu.be')))
+    },
+    hasVideoEpisodes() {
+      return (this.podcastEpisodes || []).some((ep) => ep.episodeMediaType === 'video' || ep.videoFile || ep.isVideo)
     },
     bookCoverAspectRatio() {
       return this.$store.getters['libraries/getBookCoverAspectRatio']
@@ -403,6 +431,13 @@ export default {
         })
       }
 
+      if (this.isPodcast && this.userIsAdminOrUp) {
+        items.push({
+          text: this.$strings.LabelDownloadVideoFromUrl || 'Download Video from URL',
+          action: 'download-video-url'
+        })
+      }
+
       if (this.ebookFile && this.$store.state.libraries.ereaderDevices?.length) {
         items.push({
           text: this.$strings.LabelSendEbookToDevice,
@@ -558,7 +593,7 @@ export default {
               title: episode.title,
               subtitle: this.title,
               caption: episode.publishedAt ? this.$getString('LabelPublishedDate', [this.$formatDate(episode.publishedAt, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
-              duration: episode.audioFile.duration || null,
+              duration: episode.duration || episode.audioFile?.duration || episode.videoFile?.duration || null,
               coverPath: this.libraryItem.media.coverPath || null
             })
           }
@@ -651,6 +686,16 @@ export default {
       if (episodeDownload.libraryItemId === this.libraryItemId) {
         this.episodeDownloadsQueued = this.episodeDownloadsQueued.filter((d) => d.id !== episodeDownload.id)
         this.episodesDownloading = this.episodesDownloading.filter((d) => d.id !== episodeDownload.id)
+      }
+    },
+    episodeDownloadProgress(progressData) {
+      if (progressData.libraryItemId === this.libraryItemId) {
+        const ep = this.episodesDownloading.find((d) => d.id === progressData.id)
+        if (ep) {
+          this.$set(ep, 'progress', progressData.progress)
+          this.$set(ep, 'progressSpeed', progressData.progressSpeed)
+          this.$set(ep, 'progressEta', progressData.progressEta)
+        }
       }
     },
     episodeDownloadQueueCleared(libraryItemId) {
@@ -765,6 +810,8 @@ export default {
         this.$store.commit('globals/setShowPlaylistsModal', true)
       } else if (action === 'bookmarks') {
         this.showBookmarksModal = true
+      } else if (action === 'download-video-url') {
+        this.showDownloadVideoModal = true
       } else if (action === 'rss-feeds') {
         this.clickRSSFeed()
       } else if (action === 'download') {
@@ -794,6 +841,7 @@ export default {
     this.$root.socket.on('episode_download_queued', this.episodeDownloadQueued)
     this.$root.socket.on('episode_download_started', this.episodeDownloadStarted)
     this.$root.socket.on('episode_download_finished', this.episodeDownloadFinished)
+    this.$root.socket.on('episode_download_progress', this.episodeDownloadProgress)
     this.$root.socket.on('episode_download_queue_cleared', this.episodeDownloadQueueCleared)
   },
   beforeDestroy() {
@@ -806,6 +854,7 @@ export default {
     this.$root.socket.off('episode_download_queued', this.episodeDownloadQueued)
     this.$root.socket.off('episode_download_started', this.episodeDownloadStarted)
     this.$root.socket.off('episode_download_finished', this.episodeDownloadFinished)
+    this.$root.socket.off('episode_download_progress', this.episodeDownloadProgress)
     this.$root.socket.off('episode_download_queue_cleared', this.episodeDownloadQueueCleared)
   }
 }

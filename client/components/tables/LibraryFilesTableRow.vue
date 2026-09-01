@@ -62,7 +62,7 @@ export default {
         })
       }
       // Currently not showing this option in the Files tab modal
-      if (this.userIsAdmin && this.file.audioFile && !this.inModal) {
+      if (this.userIsAdmin && (this.file.audioFile || this.file.videoFile) && !this.inModal) {
         items.push({
           text: this.$strings.LabelMoreInfo,
           action: 'more'
@@ -78,7 +78,7 @@ export default {
       } else if (action === 'download') {
         this.downloadLibraryFile()
       } else if (action === 'more') {
-        this.$emit('showMore', this.file.audioFile)
+        this.$emit('showMore', this.file.audioFile || this.file.videoFile)
       }
     },
     deleteLibraryFile() {

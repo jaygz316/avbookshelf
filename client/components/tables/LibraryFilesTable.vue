@@ -18,7 +18,7 @@
             <th class="text-left px-4">{{ $strings.LabelPath }}</th>
             <th class="text-left w-24 min-w-24">{{ $strings.LabelSize }}</th>
             <th class="text-left px-4 w-24">{{ $strings.LabelType }}</th>
-            <th v-if="userCanDelete || userCanDownload || (userIsAdmin && audioFiles.length && !inModal)" class="text-center w-16"></th>
+            <th v-if="userCanDelete || userCanDownload || (userIsAdmin && (audioFiles.length || videoFiles.length) && !inModal)" class="text-center w-16"></th>
           </tr>
           <template v-for="file in filesWithAudioFile">
             <tables-library-files-table-row :key="file.path" :libraryItemId="libraryItemId" :showFullPath="showFullPath" :file="file" :inModal="inModal" @showMore="showMore" />
@@ -71,10 +71,18 @@ export default {
       }
       return this.libraryItem.media?.audioFiles || []
     },
+    videoFiles() {
+      if (this.libraryItem.mediaType === 'podcast') {
+        return this.libraryItem.media?.episodes.map((ep) => ep.videoFile).filter((vf) => vf) || []
+      }
+      return []
+    },
     filesWithAudioFile() {
       return this.files.map((file) => {
         if (file.fileType === 'audio') {
           file.audioFile = this.audioFiles.find((af) => af.ino === file.ino)
+        } else if (file.fileType === 'video') {
+          file.videoFile = this.videoFiles.find((vf) => vf.ino === file.ino)
         }
         return file
       })

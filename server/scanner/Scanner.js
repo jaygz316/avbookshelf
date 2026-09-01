@@ -4,7 +4,7 @@ const Database = require('../Database')
 const { getTitleIgnorePrefix } = require('../utils/index')
 
 // Utils
-const { findMatchingEpisodesInFeed, getPodcastFeed } = require('../utils/podcastUtils')
+const { findMatchingEpisodesInFeed, getPodcastFeed, scoreEpisodeMatch } = require('../utils/podcastUtils')
 
 const BookFinder = require('../finders/BookFinder')
 const PodcastFinder = require('../finders/PodcastFinder')
@@ -144,6 +144,7 @@ class Scanner {
    */
   quickMatchPodcastBuildUpdatePayload(libraryItem, matchData, options) {
     const updatePayload = {}
+    const isYouTube = libraryItem.media.feedType === 'youtube' || libraryItem.media.feedType === 'ytdlp' || (libraryItem.media.feedURL && (libraryItem.media.feedURL.includes('youtube.com/') || libraryItem.media.feedURL.includes('youtu.be/')))
 
     const matchDataTransformed = {
       title: matchData.title || null,
@@ -154,7 +155,7 @@ class Scanner {
       itunesArtistId: matchData.artistId || null,
       releaseDate: matchData.releaseDate || null,
       imageUrl: matchData.cover || null,
-      feedUrl: matchData.feedUrl || null,
+      feedUrl: isYouTube ? libraryItem.media.feedURL : (matchData.feedUrl || null),
       description: matchData.descriptionPlain || null
     }
 
@@ -357,24 +358,64 @@ class Scanner {
    * @returns {Promise<number>} - Number of episodes updated
    */
   async quickMatchPodcastEpisodes(libraryItem, options = {}) {
-    /** @type {import('../models/PodcastEpisode')[]} */
-    const episodesToQuickMatch = libraryItem.media.podcastEpisodes.filter((ep) => !ep.enclosureURL) // Only quick match episodes that are not already matched
-    if (!episodesToQuickMatch.length) return 0
+    const isYouTube = libraryItem.media.feedType === 'youtube' || libraryItem.media.feedType === 'ytdlp' || (libraryItem.media.feedURL && (libraryItem.media.feedURL.includes('youtube.com/') || libraryItem.media.feedURL.includes('youtu.be/')))
 
-    const feed = await getPodcastFeed(libraryItem.media.feedURL)
+    /** @type {import('../models/PodcastEpisode')[]} */
+    const episodesToQuickMatch = isYouTube
+      ? (options.overrideDetails ? libraryItem.media.podcastEpisodes : libraryItem.media.podcastEpisodes.filter((ep) => !ep.episode || !ep.season || !ep.pubDate))
+      : (options.overrideDetails ? libraryItem.media.podcastEpisodes : libraryItem.media.podcastEpisodes.filter((ep) => !ep.enclosureURL))
+    if (!episodesToQuickMatch?.length) return 0
+
+    let feed = null
+    if (isYouTube) {
+      let itunesFeedUrl = null
+      if (libraryItem.media.itunesId) {
+        const itunesPodcast = await PodcastFinder.lookup(libraryItem.media.itunesId)
+        if (itunesPodcast?.feedUrl) itunesFeedUrl = itunesPodcast.feedUrl
+      }
+      if (!itunesFeedUrl) {
+        const results = await PodcastFinder.search(libraryItem.media.title)
+        if (results?.length && results[0].feedUrl) itunesFeedUrl = results[0].feedUrl
+      }
+      if (itunesFeedUrl) {
+        feed = await getPodcastFeed(itunesFeedUrl)
+      }
+    } else {
+      feed = await getPodcastFeed(libraryItem.media.feedURL)
+    }
+
     if (!feed) {
-      Logger.error(`[Scanner] quickMatchPodcastEpisodes: Unable to quick match episodes feed not found for "${libraryItem.media.feedURL}"`)
+      Logger.error(`[Scanner] quickMatchPodcastEpisodes: Unable to quick match episodes feed not found for "${libraryItem.media.title}"`)
       return 0
     }
 
     let numEpisodesUpdated = 0
-    for (const episode of episodesToQuickMatch) {
-      const episodeMatches = findMatchingEpisodesInFeed(feed, episode.title, 0.1)
-      if (episodeMatches?.length) {
-        const wasUpdated = await this.updateEpisodeWithMatch(episode, episodeMatches[0].episode, options)
-        if (wasUpdated) numEpisodesUpdated++
+    if (isYouTube) {
+      for (const episode of episodesToQuickMatch) {
+        let bestMatch = null
+        let bestScore = 0
+        for (const feedEp of feed.episodes || []) {
+          const score = scoreEpisodeMatch(episode, feedEp, libraryItem.media.title)
+          if (score > bestScore && score >= 0.38) {
+            bestScore = score
+            bestMatch = feedEp
+          }
+        }
+        if (bestMatch) {
+          const wasUpdated = await this.updateEpisodeWithMatch(episode, bestMatch, { ...options, isYouTube: true })
+          if (wasUpdated) numEpisodesUpdated++
+        }
+      }
+    } else {
+      for (const episode of episodesToQuickMatch) {
+        const episodeMatches = findMatchingEpisodesInFeed(feed, episode.title, 0.1)
+        if (episodeMatches?.length) {
+          const wasUpdated = await this.updateEpisodeWithMatch(episode, episodeMatches[0].episode, options)
+          if (wasUpdated) numEpisodesUpdated++
+        }
       }
     }
+
     if (numEpisodesUpdated) {
       Logger.info(`[Scanner] quickMatchPodcastEpisodes: Updated ${numEpisodesUpdated} episodes for "${libraryItem.media.title}"`)
     }
@@ -385,18 +426,18 @@ class Scanner {
    *
    * @param {import('../models/PodcastEpisode')} episode
    * @param {import('../utils/podcastUtils').RssPodcastEpisode} episodeToMatch
-   * @param {QuickMatchOptions} options
+   * @param {QuickMatchOptions & { isYouTube?: boolean }} options
    * @returns {Promise<boolean>} - true if episode was updated
    */
   async updateEpisodeWithMatch(episode, episodeToMatch, options = {}) {
     Logger.debug(`[Scanner] quickMatchPodcastEpisodes: Found episode match for "${episode.title}" => ${episodeToMatch.title}`)
     const matchDataTransformed = {
-      title: episodeToMatch.title || '',
+      title: options.isYouTube ? (options.overrideDetails ? (episodeToMatch.title || episode.title) : episode.title) : (episodeToMatch.title || ''),
       subtitle: episodeToMatch.subtitle || '',
       description: episodeToMatch.description || '',
-      enclosureURL: episodeToMatch.enclosure?.url || null,
-      enclosureSize: episodeToMatch.enclosure?.length || null,
-      enclosureType: episodeToMatch.enclosure?.type || null,
+      enclosureURL: options.isYouTube ? episode.enclosureURL : (episodeToMatch.enclosure?.url || null),
+      enclosureSize: options.isYouTube ? episode.enclosureSize : (episodeToMatch.enclosure?.length || null),
+      enclosureType: options.isYouTube ? episode.enclosureType : (episodeToMatch.enclosure?.type || null),
       episode: episodeToMatch.episode || '',
       episodeType: episodeToMatch.episodeType || 'full',
       season: episodeToMatch.season || '',
@@ -405,7 +446,7 @@ class Scanner {
     }
     const updatePayload = {}
     for (const key in matchDataTransformed) {
-      if (matchDataTransformed[key]) {
+      if (matchDataTransformed[key] !== undefined && matchDataTransformed[key] !== null) {
         if (episode[key] !== matchDataTransformed[key] && (!episode[key] || options.overrideDetails)) {
           updatePayload[key] = matchDataTransformed[key]
         }

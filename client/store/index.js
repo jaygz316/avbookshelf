@@ -13,6 +13,10 @@ export const state = () => ({
   playerQueueItems: [],
   playerQueueAutoPlay: true,
   playerIsFullscreen: false,
+  videoPlayerSize: 'compact',
+  videoFitMode: 'contain',
+  isFloatingMiniPlayer: false,
+  isPiPActive: false,
   editModalTab: 'details',
   editPodcastModalTab: 'details',
   showEditModal: false,
@@ -136,6 +140,18 @@ export const mutations = {
   },
   setPlayerIsFullscreen(state, val) {
     state.playerIsFullscreen = val
+  },
+  setVideoPlayerSize(state, size) {
+    state.videoPlayerSize = size
+  },
+  setVideoFitMode(state, mode) {
+    state.videoFitMode = mode
+  },
+  setFloatingMiniPlayer(state, val) {
+    state.isFloatingMiniPlayer = val
+  },
+  setPiPActive(state, val) {
+    state.isPiPActive = val
   },
   setLastBookshelfScrollData(state, { scrollTop, path, name }) {
     state.lastBookshelfScrollData[name] = { scrollTop, path }

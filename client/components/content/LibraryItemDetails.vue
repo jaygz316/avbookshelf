@@ -27,6 +27,17 @@
         <nuxt-link :to="`/library/${libraryId}/bookshelf?filter=publishers.${$encode(publisher)}`" class="hover:underline">{{ publisher }}</nuxt-link>
       </div>
     </div>
+    <div v-if="isPodcast && (feedType === 'youtube' || feedURL)" role="paragraph" class="flex py-0.5">
+      <div class="w-34 min-w-34 sm:w-34 sm:min-w-34 break-words">
+        <span class="text-white/60 uppercase text-sm">Source</span>
+      </div>
+      <div>
+        <span v-if="feedType === 'youtube'" class="text-red-400 font-medium inline-flex items-center gap-1">
+          <span class="material-symbols text-sm">smart_display</span> YouTube
+        </span>
+        <span v-else class="text-gray-300">RSS Feed</span>
+      </div>
+    </div>
     <div v-if="podcastType" role="paragraph" class="flex py-0.5">
       <div class="w-34 min-w-34 sm:w-34 sm:min-w-34 break-words">
         <span class="text-white/60 uppercase text-sm">{{ $strings.LabelPodcastType }}</span>
@@ -160,6 +171,12 @@ export default {
     },
     podcastType() {
       return this.mediaMetadata.type
+    },
+    feedType() {
+      return this.mediaMetadata.feedType || this.media.feedType || 'rss'
+    },
+    feedURL() {
+      return this.mediaMetadata.feedUrl || this.media.feedURL || null
     }
   },
   methods: {},

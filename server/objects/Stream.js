@@ -4,6 +4,7 @@ const Logger = require('../Logger')
 const SocketAuthority = require('../SocketAuthority')
 
 const fs = require('../libs/fsExtra')
+const { existsSync } = require('fs')
 const Ffmpeg = require('../libs/fluentFfmpeg')
 
 const { secondsToTimestamp } = require('../utils/index')
@@ -12,7 +13,17 @@ const { AudioMimeType } = require('../utils/constants')
 const hlsPlaylistGenerator = require('../utils/generators/hlsPlaylistGenerator')
 const AudioTrack = require('./files/AudioTrack')
 
+const { videoStreamHandler } = require('../video')
+
 class Stream extends EventEmitter {
+  /**
+   * Detect available hardware encoder
+   * @returns {'h264_vaapi'|'libx264'} - The best available H.264 encoder
+   */
+  static getVideoEncoder() {
+    return videoStreamHandler.getVideoEncoder()
+  }
+
   constructor(sessionId, streamPath, user, libraryItem, episodeId, startTime, transcodeOptions = {}) {
     super()
 
@@ -106,6 +117,9 @@ class Stream extends EventEmitter {
   get transcodeForceAAC() {
     return !!this.transcodeOptions.forceAAC
   }
+  get isVideo() {
+    return Boolean(this.episode?.isVideo || (this.tracks.length > 0 && !!this.tracks[0].width))
+  }
 
   toJSON() {
     return {
@@ -118,7 +132,8 @@ class Stream extends EventEmitter {
       clientPlaylistUri: this.clientPlaylistUri,
       startTime: this.startTime,
       segmentStartNumber: this.segmentStartNumber,
-      isTranscodeComplete: this.isTranscodeComplete
+      isTranscodeComplete: this.isTranscodeComplete,
+      isVideo: this.isVideo
     }
   }
 
@@ -168,7 +183,8 @@ class Stream extends EventEmitter {
         return
       }
 
-      if (this.segmentsCreated.size > 6 && !this.isClientInitialized) {
+      const minSegments = this.isVideo ? 2 : 6
+      if (this.segmentsCreated.size >= minSegments && !this.isClientInitialized) {
         this.isClientInitialized = true
         Logger.info(`[STREAM] ${this.id} notifying client that stream is ready`)
         this.clientEmit('stream_open', this.toJSON())
@@ -268,18 +284,24 @@ class Stream extends EventEmitter {
     const logLevel = process.env.NODE_ENV === 'production' ? 'error' : 'warning'
 
     let audioCodec = 'copy'
-    if (this.transcodeForceAAC || this.mimeTypesToForceAAC.includes(this.tracksMimeType) || this.codecsToForceAAC.includes(this.tracksCodec)) {
-      Logger.debug(`[Stream] Forcing AAC for tracks with mime type ${this.tracksMimeType} and codec ${this.tracksCodec}`)
-      audioCodec = 'aac'
-    }
+    const codecOptions = [`-loglevel ${logLevel}`]
 
-    const codecOptions = [`-loglevel ${logLevel}`, '-map 0:a']
-
-    if (['ac3', 'eac3'].includes(this.tracksCodec) && this.tracks.length > 0 && this.tracks[0].bitRate && this.tracks[0].channels) {
-      // In case for ac3/eac3 it needs to be passed the bitrate and channels to avoid ffmpeg errors
-      codecOptions.push(`-c:a ${audioCodec}`, `-b:a ${this.tracks[0].bitRate}`, `-ac ${this.tracks[0].channels}`)
+    if (this.isVideo) {
+      videoStreamHandler.applyVideoTranscodeOptions(this.ffmpeg, this.transcodeOptions, this.tracks, codecOptions, Stream.getVideoEncoder())
     } else {
-      codecOptions.push(`-c:a ${audioCodec}`)
+      codecOptions.push('-map 0:a')
+
+      if (this.transcodeForceAAC || this.mimeTypesToForceAAC.includes(this.tracksMimeType) || this.codecsToForceAAC.includes(this.tracksCodec)) {
+        Logger.debug(`[Stream] Forcing AAC for tracks with mime type ${this.tracksMimeType} and codec ${this.tracksCodec}`)
+        audioCodec = 'aac'
+      }
+
+      if (['ac3', 'eac3'].includes(this.tracksCodec) && this.tracks.length > 0 && this.tracks[0].bitRate && this.tracks[0].channels) {
+        // In case for ac3/eac3 it needs to be passed the bitrate and channels to avoid ffmpeg errors
+        codecOptions.push(`-c:a ${audioCodec}`, `-b:a ${this.tracks[0].bitRate}`, `-ac ${this.tracks[0].channels}`)
+      } else {
+        codecOptions.push(`-c:a ${audioCodec}`)
+      }
     }
 
     this.ffmpeg.addOption(codecOptions)
@@ -361,16 +383,19 @@ class Stream extends EventEmitter {
     Logger.info('Closing Stream', this.id)
     if (this.ffmpeg) {
       this.ffmpeg.kill('SIGKILL')
+      await this.waitCancelTranscode()
     }
 
-    await fs
-      .remove(this.streamPath)
-      .then(() => {
-        Logger.info('Deleted session data', this.streamPath)
+    try {
+      await fs.remove(this.streamPath)
+      Logger.info('Deleted session data', this.streamPath)
+    } catch (err) {
+      // Retry once after 300ms in case ffmpeg was in the middle of writing a trailing segment
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      await fs.remove(this.streamPath).catch((retryErr) => {
+        Logger.error('Failed to delete session data', retryErr)
       })
-      .catch((err) => {
-        Logger.error('Failed to delete session data', err)
-      })
+    }
 
     if (errorMessage) this.clientEmit('stream_error', { id: this.id, error: (errorMessage || '').trim() })
     else this.clientEmit('stream_closed', this.id)
@@ -381,7 +406,14 @@ class Stream extends EventEmitter {
   cancelTranscode() {
     clearInterval(this.loop)
     if (this.ffmpeg) {
-      this.ffmpeg.kill('SIGKILL')
+      this.ffmpeg.kill('SIGTERM')
+      // Escalate to SIGKILL after 2 seconds if SIGTERM didn't work
+      setTimeout(() => {
+        if (this.ffmpeg) {
+          Logger.warn('[STREAM] FFmpeg did not respond to SIGTERM, sending SIGKILL')
+          this.ffmpeg.kill('SIGKILL')
+        }
+      }, 2000)
     }
   }
 
@@ -390,7 +422,8 @@ class Stream extends EventEmitter {
       if (!this.ffmpeg) return true
       await new Promise((resolve) => setTimeout(resolve, 500))
     }
-    Logger.error('[STREAM] Transcode never closed...')
+    Logger.error('[STREAM] Transcode never closed after 10s - forcing cleanup')
+    this.ffmpeg = null
     return false
   }
 
@@ -421,6 +454,10 @@ class Stream extends EventEmitter {
     var newAudioTrack = new AudioTrack()
     newAudioTrack.setFromStream(this.mediaTitle, this.totalDuration, this.clientPlaylistUri)
     return newAudioTrack
+  }
+
+  getVideoTrack() {
+    return this.getAudioTrack()
   }
 }
 module.exports = Stream

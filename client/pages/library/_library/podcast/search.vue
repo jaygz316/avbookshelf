@@ -11,6 +11,17 @@
         </form>
         <ui-file-input ref="fileInput" :accept="'.opml, .txt'" class="ml-2" @change="opmlFileUpload">{{ $strings.ButtonUploadOPMLFile }}</ui-file-input>
       </div>
+      <div class="w-full max-w-4xl mx-auto mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
+        <span class="inline-flex items-center gap-1 bg-primary/40 px-2 py-1 rounded">
+          <span class="material-symbols text-sm text-yellow-400">search</span> Apple Podcasts
+        </span>
+        <span class="inline-flex items-center gap-1 bg-primary/40 px-2 py-1 rounded">
+          <span class="material-symbols text-sm text-yellow-400">rss_feed</span> RSS Feeds
+        </span>
+        <span class="inline-flex items-center gap-1 bg-red-600/30 text-red-200 border border-red-500/30 px-2 py-1 rounded font-medium">
+          <span class="material-symbols text-sm text-red-400">smart_display</span> YouTube Playlists & Channels
+        </span>
+      </div>
       <div class="w-full max-w-3xl mx-auto py-4">
         <p v-if="termSearched && !results.length && !processing" class="text-center text-xl">{{ $strings.MessageNoPodcastsFound }}</p>
         <template v-for="podcast in results">
@@ -143,10 +154,20 @@ export default {
       }
     },
     async checkRSSFeed(rssFeed) {
+      if (!rssFeed) return
+      const cleanFeedUrl = rssFeed.toLowerCase().trim()
+      const existingPodcast = this.existentPodcasts.find((p) => p.feedURL === cleanFeedUrl)
+      if (existingPodcast) {
+        this.$toast.info(this.$strings.MessagePodcastAlreadyInLibrary || 'Podcast already exists in library')
+        this.$router.push(`/item/${existingPodcast.id}`)
+        return
+      }
+
       this.processing = true
       var payload = await this.$axios.$post(`/api/podcasts/feed`, { rssFeed }).catch((error) => {
         console.error('Failed to get feed', error)
-        this.$toast.error(this.$strings.ToastPodcastGetFeedFailed)
+        var msg = error.response?.data || this.$strings.ToastPodcastGetFeedFailed
+        this.$toast.error(typeof msg === 'string' ? msg : this.$strings.ToastPodcastGetFeedFailed)
         return null
       })
       this.processing = false
@@ -174,7 +195,7 @@ export default {
       results = results.filter((r) => r.feedUrl)
 
       for (let result of results) {
-        let podcast = this.existentPodcasts.find((p) => p.itunesId === result.id || p.title === result.title.toLowerCase())
+        let podcast = this.existentPodcasts.find((p) => (p.itunesId && String(p.itunesId) === String(result.id)) || (result.feedUrl && p.feedURL && p.feedURL === result.feedUrl.toLowerCase().trim()) || (p.title && result.title && p.title === result.title.toLowerCase()))
         if (podcast) {
           result.alreadyInLibrary = true
           result.existentId = podcast.id
@@ -215,10 +236,11 @@ export default {
         console.error('Failed to fetch podcasts', error)
         return []
       })
-      this.existentPodcasts = podcastsResponse.podcasts.map((p) => {
+      this.existentPodcasts = (podcastsResponse.podcasts || []).map((p) => {
         return {
-          title: p.title.toLowerCase(),
-          itunesId: p.itunesId,
+          title: p.title ? p.title.toLowerCase() : '',
+          itunesId: p.itunesId ? String(p.itunesId) : null,
+          feedURL: p.feedURL ? p.feedURL.toLowerCase().trim() : null,
           id: p.libraryItemId
         }
       })

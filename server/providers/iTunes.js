@@ -166,5 +166,30 @@ class iTunes {
       return results.map(this.cleanPodcast.bind(this))
     })
   }
+
+  /**
+   * Lookup podcast by iTunes ID
+   * @param {string|number} id
+   * @param {number} [timeout]
+   * @returns {Promise<iTunesPodcastSearchResult|null>}
+   */
+  lookupPodcast(id, timeout = this.#responseTimeout) {
+    if (!id) return Promise.resolve(null)
+    if (!timeout || isNaN(timeout)) timeout = this.#responseTimeout
+
+    return axios
+      .get('https://itunes.apple.com/lookup', {
+        params: { id, entity: 'podcast' },
+        timeout
+      })
+      .then((response) => {
+        const results = response.data?.results || []
+        return results.length ? this.cleanPodcast(results[0]) : null
+      })
+      .catch((error) => {
+        Logger.error(`[iTunes] lookup request error`, error.message)
+        return null
+      })
+  }
 }
 module.exports = iTunes

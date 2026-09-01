@@ -37,13 +37,28 @@ const SleepTimerTypes = {
   CHAPTER: 'chapter'
 }
 
+const VideoPlayerSize = {
+  COMPACT: 'compact',
+  THEATER: 'theater',
+  EXPANDED: 'expanded',
+  FULLSCREEN: 'fullscreen'
+}
+
+const VideoFitMode = {
+  CONTAIN: 'contain',
+  COVER: 'cover',
+  FILL: 'fill'
+}
+
 const Constants = {
   SupportedFileTypes,
   DownloadStatus,
   BookCoverAspectRatio,
   BookshelfView,
   PlayMethod,
-  SleepTimerTypes
+  SleepTimerTypes,
+  VideoPlayerSize,
+  VideoFitMode
 }
 
 const KeyNames = {
@@ -53,8 +68,12 @@ const KeyNames = {
   38: 'ArrowUp',
   39: 'ArrowRight',
   40: 'ArrowDown',
+  67: 'KeyC',
+  70: 'KeyF',
   76: 'KeyL',
-  77: 'KeyM'
+  77: 'KeyM',
+  80: 'KeyP',
+  84: 'KeyT'
 }
 const Hotkeys = {
   AudioPlayer: {
@@ -67,7 +86,11 @@ const Hotkeys = {
     SHOW_CHAPTERS: 'KeyL',
     INCREASE_PLAYBACK_RATE: 'Shift-ArrowUp',
     DECREASE_PLAYBACK_RATE: 'Shift-ArrowDown',
-    CLOSE: 'Escape'
+    CLOSE: 'Escape',
+    TOGGLE_FULLSCREEN: 'KeyF',
+    TOGGLE_PIP: 'KeyP',
+    CYCLE_PLAYER_SIZE: 'KeyT',
+    CYCLE_VIDEO_FIT: 'KeyC'
   },
   EReader: {
     NEXT_PAGE: 'ArrowRight',

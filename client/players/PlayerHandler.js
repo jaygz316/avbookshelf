@@ -1,4 +1,5 @@
 import LocalAudioPlayer from './LocalAudioPlayer'
+import LocalVideoPlayer from './LocalVideoPlayer'
 import CastPlayer from './CastPlayer'
 import AudioTrack from './AudioTrack'
 
@@ -17,6 +18,7 @@ export default class PlayerHandler {
     this.currentSessionId = null
     this.startTimeOverride = undefined // Used for starting playback at a specific time (i.e. clicking bookmark from library item page)
     this.startTime = 0
+    this.isVideo = false
 
     this.failedProgressSyncs = 0
     this.lastSyncTime = 0
@@ -35,10 +37,16 @@ export default class PlayerHandler {
     return this.libraryItem && this.player instanceof CastPlayer
   }
   get isPlayingLocalItem() {
-    return this.libraryItem && this.player instanceof LocalAudioPlayer
+    return this.libraryItem && (this.player instanceof LocalAudioPlayer || this.player instanceof LocalVideoPlayer)
   }
   get playerPlaying() {
     return this.playerState === 'PLAYING'
+  }
+  get isVideoEpisode() {
+    if (!this.episodeId || !this.libraryItem) return false
+    const episodes = this.libraryItem.media?.episodes || []
+    const episode = episodes.find((ep) => ep.id === this.episodeId)
+    return episode?.episodeMediaType === 'video' || !!episode?.videoFile
   }
   get episode() {
     if (!this.episodeId) return null
@@ -60,13 +68,18 @@ export default class PlayerHandler {
     this.libraryItem = libraryItem
 
     this.episodeId = episodeId
+    this.isVideo = this.isVideoEpisode
     this.playWhenReady = playWhenReady
     this.initialPlaybackRate = playbackRate
 
     this.startTimeOverride = startTimeOverride == null || isNaN(startTimeOverride) ? undefined : Number(startTimeOverride)
 
-    if (!this.player) this.switchPlayer(playWhenReady)
-    else this.prepare()
+    const PlayerClass = this.isVideo ? LocalVideoPlayer : LocalAudioPlayer
+    if (!this.player || (this.isCasting && !(this.player instanceof CastPlayer)) || (!this.isCasting && !(this.player instanceof PlayerClass))) {
+      this.switchPlayer(playWhenReady)
+    } else {
+      this.prepare()
+    }
   }
 
   switchPlayer(playWhenReady) {
@@ -88,24 +101,27 @@ export default class PlayerHandler {
         this.playWhenReady = playWhenReady
         this.prepare()
       }
-    } else if (!this.isCasting && !(this.player instanceof LocalAudioPlayer)) {
-      console.log('[PlayerHandler] Switching to local player')
+    } else if (!this.isCasting) {
+      const PlayerClass = this.isVideo ? LocalVideoPlayer : LocalAudioPlayer
+      if (!(this.player instanceof PlayerClass)) {
+        console.log(`[PlayerHandler] Switching to local ${this.isVideo ? 'video' : 'audio'} player`)
 
-      this.stopPlayInterval()
-      this.playerStateChange('LOADING')
+        this.stopPlayInterval()
+        this.playerStateChange('LOADING')
 
-      if (this.player) {
-        this.player.destroy()
-      }
+        if (this.player) {
+          this.player.destroy()
+        }
 
-      this.player = new LocalAudioPlayer(this.ctx)
+        this.player = new PlayerClass(this.ctx)
 
-      this.setPlayerListeners()
+        this.setPlayerListeners()
 
-      if (this.libraryItem) {
-        // libraryItem was already loaded - prepare for local play
-        this.playWhenReady = playWhenReady
-        this.prepare()
+        if (this.libraryItem) {
+          // libraryItem was already loaded - prepare for local play
+          this.playWhenReady = playWhenReady
+          this.prepare()
+        }
       }
     }
   }
@@ -116,12 +132,13 @@ export default class PlayerHandler {
     this.player.on('buffertimeUpdate', this.playerBufferTimeUpdate.bind(this))
     this.player.on('error', this.playerError.bind(this))
     this.player.on('finished', this.playerFinished.bind(this))
+    this.player.on('pipChange', this.playerPiPChange.bind(this))
   }
 
   playerError() {
     // Switch to HLS stream on error
-    if (!this.isCasting && this.player instanceof LocalAudioPlayer) {
-      console.log(`[PlayerHandler] Audio player error switching to HLS stream`)
+    if (!this.isCasting && (this.player instanceof LocalAudioPlayer || this.player instanceof LocalVideoPlayer)) {
+      console.log(`[PlayerHandler] Player error switching to HLS stream`)
       this.prepare(true)
     }
   }
@@ -187,7 +204,7 @@ export default class PlayerHandler {
         clientName: 'Abs Web',
         deviceId: this.getDeviceId()
       },
-      supportedMimeTypes: this.player.playableMimeTypes,
+      supportedMimeTypes: this.player ? this.player.playableMimeTypes : [],
       mediaPlayer: this.isCasting ? 'chromecast' : 'html5',
       forceTranscode,
       forceDirectPlay: this.isCasting // TODO: add transcode support for chromecast
@@ -197,14 +214,20 @@ export default class PlayerHandler {
     const session = await this.ctx.$axios.$post(path, payload).catch((error) => {
       console.error('Failed to start stream', error)
     })
-    this.prepareSession(session)
+    if (session) {
+      this.prepareSession(session)
+    }
   }
 
   prepareOpenSession(session, playbackRate) {
     // Session opened on init socket
-    if (!this.player) this.switchPlayer() // Must set player first for open sessions
-
     this.libraryItem = session.libraryItem
+    this.episodeId = session.episodeId || null
+    this.isVideo = this.isVideoEpisode
+
+    const PlayerClass = this.isVideo ? LocalVideoPlayer : LocalAudioPlayer
+    if (!this.player || !(this.player instanceof PlayerClass)) this.switchPlayer() // Must set player first for open sessions
+
     this.playWhenReady = false
     this.initialPlaybackRate = playbackRate
     this.startTimeOverride = undefined
@@ -223,7 +246,8 @@ export default class PlayerHandler {
 
     console.log('[PlayerHandler] Preparing Session', session)
 
-    var audioTracks = session.audioTracks.map((at) => new AudioTrack(at, session.id, this.ctx.$config.routerBasePath))
+    const rawTracks = session.videoTracks?.length ? session.videoTracks : session.audioTracks || []
+    var tracks = rawTracks.map((at) => new AudioTrack(at, session.id, this.ctx.$config.routerBasePath))
 
     this.ctx.playerLoading = true
     this.isHlsTranscode = true
@@ -231,7 +255,7 @@ export default class PlayerHandler {
       this.isHlsTranscode = false
     }
 
-    this.player.set(this.libraryItem, audioTracks, this.isHlsTranscode, this.startTime, this.playWhenReady)
+    this.player.set(this.libraryItem, tracks, this.isHlsTranscode, this.startTime, this.playWhenReady)
 
     // browser media session api
     this.ctx.setMediaSession()
@@ -391,6 +415,30 @@ export default class PlayerHandler {
     // Update progress if paused
     if (!this.playerPlaying && shouldSync) {
       this.sendProgressSync(time)
+    }
+  }
+
+  playerPiPChange(isActive) {
+    if (this.ctx && this.ctx.$store) {
+      this.ctx.$store.commit('setPiPActive', !!isActive)
+    }
+  }
+
+  async togglePiP() {
+    if (!(this.player instanceof LocalVideoPlayer)) return
+    if (this.player.isPiPActive) {
+      await this.player.exitPiP()
+    } else {
+      await this.player.requestPiP()
+    }
+  }
+
+  setVideoFit(mode) {
+    if (this.player instanceof LocalVideoPlayer) {
+      this.player.setVideoFit(mode)
+    }
+    if (this.ctx && this.ctx.$store) {
+      this.ctx.$store.commit('setVideoFitMode', mode)
     }
   }
 }

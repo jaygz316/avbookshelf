@@ -769,5 +769,45 @@ class MiscController {
       currentDailyLogs: Logger.logManager.getMostRecentCurrentDailyLogs()
     })
   }
+
+  /**
+   * GET: /api/yt-dlp/status
+   *
+   * @param {RequestWithUser} req
+   * @param {Response} res
+   */
+  getYtDlpStatus(req, res) {
+    const ytDlpManager = this.ytDlpManager || req.ytDlpManager
+    res.json({
+      isAvailable: ytDlpManager?.isAvailable || false,
+      path: ytDlpManager?.ytDlpPath || null
+    })
+  }
+
+  /**
+   * POST: /api/yt-dlp/info
+   *
+   * @param {RequestWithUser} req
+   * @param {Response} res
+   */
+  async getYtDlpVideoInfo(req, res) {
+    const { url } = req.body
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ error: 'URL is required' })
+    }
+
+    const ytDlpManager = this.ytDlpManager || req.ytDlpManager
+    if (!ytDlpManager?.isAvailable) {
+      return res.status(503).json({ error: 'yt-dlp is not available on this server' })
+    }
+
+    try {
+      const info = await ytDlpManager.getVideoInfo(url)
+      res.json(info)
+    } catch (error) {
+      Logger.error(`[MiscController] getYtDlpVideoInfo failed for "${url}":`, error)
+      res.status(400).json({ error: error.message || 'Failed to get video info' })
+    }
+  }
 }
 module.exports = new MiscController()

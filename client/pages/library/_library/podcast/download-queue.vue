@@ -46,7 +46,7 @@
           </div>
         </template>
 
-        <tables-podcast-download-queue-table v-if="episodeDownloadsQueued.length" :queue="episodeDownloadsQueued"></tables-podcast-download-queue-table>
+        <tables-podcast-download-queue-table v-if="episodeDownloadsQueued.length || episodesDownloading.length" :queue="episodeDownloadsQueued" :downloading="episodesDownloading[0] || null"></tables-podcast-download-queue-table>
       </div>
     </div>
   </div>
@@ -125,6 +125,17 @@ export default {
       this.$root.socket.on('episode_download_queued', this.episodeDownloadQueued)
       this.$root.socket.on('episode_download_started', this.episodeDownloadStarted)
       this.$root.socket.on('episode_download_finished', this.episodeDownloadFinished)
+      this.$root.socket.on('episode_download_progress', this.episodeDownloadProgress)
+    },
+    episodeDownloadProgress(progressData) {
+      if (progressData.libraryId === this.libraryId) {
+        const ep = this.episodesDownloading.find((d) => d.id === progressData.id)
+        if (ep) {
+          this.$set(ep, 'progress', progressData.progress)
+          this.$set(ep, 'progressSpeed', progressData.progressSpeed)
+          this.$set(ep, 'progressEta', progressData.progressEta)
+        }
+      }
     }
   },
   mounted() {
@@ -134,6 +145,7 @@ export default {
     this.$root.socket.off('episode_download_queued', this.episodeDownloadQueued)
     this.$root.socket.off('episode_download_started', this.episodeDownloadStarted)
     this.$root.socket.off('episode_download_finished', this.episodeDownloadFinished)
+    this.$root.socket.off('episode_download_progress', this.episodeDownloadProgress)
   }
 }
 </script>

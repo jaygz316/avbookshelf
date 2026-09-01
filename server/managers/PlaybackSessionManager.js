@@ -336,17 +336,30 @@ class PlaybackSessionManager {
     newPlaybackSession.setData(libraryItem, user.id, mediaPlayer, deviceInfo, userStartTime, episodeId)
 
     let audioTracks = []
+    let videoTracks = []
     if (shouldDirectPlay) {
       Logger.debug(`[PlaybackSessionManager] "${user.username}" starting direct play session for item "${libraryItem.id}" with id ${newPlaybackSession.id} (Device: ${newPlaybackSession.deviceDescription})`)
-      audioTracks = libraryItem.getTrackList(episodeId)
+      const tracks = libraryItem.getTrackList(episodeId)
+      const episode = episodeId && libraryItem.isPodcast ? libraryItem.media.podcastEpisodes?.find((ep) => ep.id === episodeId) : null
+      if (episode?.isVideo) {
+        videoTracks = tracks
+      } else {
+        audioTracks = tracks
+      }
       newPlaybackSession.playMethod = PlayMethod.DIRECTPLAY
     } else {
       Logger.debug(`[PlaybackSessionManager] "${user.username}" starting stream session for item "${libraryItem.id}" (Device: ${newPlaybackSession.deviceDescription})`)
-      const stream = new Stream(newPlaybackSession.id, this.StreamsPath, user, libraryItem, episodeId, userStartTime)
+      const stream = new Stream(newPlaybackSession.id, this.StreamsPath, user, libraryItem, episodeId, userStartTime, {
+        forceTranscode: !!options.forceTranscode
+      })
       await stream.generatePlaylist()
       stream.start() // Start transcode
 
-      audioTracks = [stream.getAudioTrack()]
+      if (stream.isVideo) {
+        videoTracks = [stream.getVideoTrack()]
+      } else {
+        audioTracks = [stream.getAudioTrack()]
+      }
       newPlaybackSession.stream = stream
       newPlaybackSession.playMethod = PlayMethod.TRANSCODE
 
@@ -356,6 +369,7 @@ class PlaybackSessionManager {
       })
     }
     newPlaybackSession.audioTracks = audioTracks
+    newPlaybackSession.videoTracks = videoTracks
 
     this.sessions.push(newPlaybackSession)
     SocketAuthority.adminEmitter('user_stream_update', user.toJSONForPublic(this.sessions))

@@ -39,6 +39,7 @@ const CronManager = require('./managers/CronManager')
 const ApiCacheManager = require('./managers/ApiCacheManager')
 const BinaryManager = require('./managers/BinaryManager')
 const ShareManager = require('./managers/ShareManager')
+const YtDlpManager = require('./managers/YtDlpManager')
 const LibraryScanner = require('./scanner/LibraryScanner')
 
 //Import the main Passport and Express-Session library
@@ -116,7 +117,8 @@ class Server {
     this.backupManager = new BackupManager()
     this.abMergeManager = new AbMergeManager()
     this.playbackSessionManager = new PlaybackSessionManager()
-    this.podcastManager = new PodcastManager()
+    this.ytDlpManager = new YtDlpManager()
+    this.podcastManager = new PodcastManager(this.ytDlpManager)
     this.audioMetadataManager = new AudioMetadataMangaer()
     this.cronManager = new CronManager(this.podcastManager, this.playbackSessionManager)
     this.apiCacheManager = new ApiCacheManager()
@@ -168,6 +170,9 @@ class Server {
     if (global.Source !== 'docker') {
       await this.binaryManager.init()
     }
+
+    await this.ytDlpManager.init()
+    global.ytDlpManager = this.ytDlpManager
 
     await Database.init(false)
 
@@ -334,6 +339,12 @@ class Server {
 
     // Skip JSON parsing for internal-api routes
     router.use(/^(?!\/internal-api).*/, express.json({ limit: '10mb' }))
+
+    router.use((req, res, next) => {
+      req.ytDlpManager = this.ytDlpManager
+      req.podcastManager = this.podcastManager
+      next()
+    })
 
     router.use('/api', this.auth.ifAuthNeeded(this.authMiddleware.bind(this)), this.apiRouter.router)
     router.use('/hls', this.hlsRouter.router)

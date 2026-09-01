@@ -54,6 +54,8 @@ class ApiRouter {
     this.cronManager = Server.cronManager
     /** @type {import('../managers/EmailManager')} */
     this.emailManager = Server.emailManager
+    /** @type {import('../managers/YtDlpManager')} */
+    this.ytDlpManager = Server.ytDlpManager
     this.apiCacheManager = Server.apiCacheManager
 
     this.router = express()
@@ -110,6 +112,7 @@ class ApiRouter {
     this.router.get('/items/:id/download', LibraryItemController.middleware.bind(this), LibraryItemController.download.bind(this))
     this.router.patch('/items/:id/media', LibraryItemController.middleware.bind(this), LibraryItemController.updateMedia.bind(this))
     this.router.get('/items/:id/cover', LibraryItemController.getCover.bind(this))
+    this.router.get('/items/:id/episode/:episodeId/thumbnail', LibraryItemController.getEpisodeThumbnail.bind(this))
     this.router.post('/items/:id/cover', LibraryItemController.middleware.bind(this), LibraryItemController.uploadCover.bind(this))
     this.router.patch('/items/:id/cover', LibraryItemController.middleware.bind(this), LibraryItemController.updateCover.bind(this))
     this.router.delete('/items/:id/cover', LibraryItemController.middleware.bind(this), LibraryItemController.removeCover.bind(this))
@@ -247,6 +250,7 @@ class ApiRouter {
     //
     this.router.post('/podcasts', PodcastController.create.bind(this))
     this.router.post('/podcasts/feed', PodcastController.getPodcastFeed.bind(this))
+    this.router.post('/podcasts/feed/match-itunes', PodcastController.matchFeedEpisodes.bind(this))
     this.router.post('/podcasts/opml/parse', PodcastController.getFeedsFromOPMLText.bind(this))
     this.router.post('/podcasts/opml/create', PodcastController.bulkCreatePodcastsFromOpmlFeedUrls.bind(this))
     this.router.get('/podcasts/:id/checknew', PodcastController.middleware.bind(this), PodcastController.checkNewEpisodes.bind(this))
@@ -254,6 +258,7 @@ class ApiRouter {
     this.router.get('/podcasts/:id/clear-queue', PodcastController.middleware.bind(this), PodcastController.clearEpisodeDownloadQueue.bind(this))
     this.router.get('/podcasts/:id/search-episode', PodcastController.middleware.bind(this), PodcastController.findEpisode.bind(this))
     this.router.post('/podcasts/:id/download-episodes', PodcastController.middleware.bind(this), PodcastController.downloadEpisodes.bind(this))
+    this.router.post('/podcasts/:id/download-yt-episode', PodcastController.middleware.bind(this), PodcastController.downloadYtDlpEpisode.bind(this))
     this.router.post('/podcasts/:id/match-episodes', PodcastController.middleware.bind(this), PodcastController.quickMatchEpisodes.bind(this))
     this.router.get('/podcasts/:id/episode/:episodeId', PodcastController.middleware.bind(this), PodcastController.getEpisode.bind(this))
     this.router.patch('/podcasts/:id/episode/:episodeId', PodcastController.middleware.bind(this), PodcastController.updateEpisode.bind(this))
@@ -359,6 +364,8 @@ class ApiRouter {
     this.router.patch('/auth-settings', MiscController.updateAuthSettings.bind(this))
     this.router.post('/watcher/update', MiscController.updateWatchedPath.bind(this))
     this.router.get('/logger-data', MiscController.getLoggerData.bind(this))
+    this.router.get('/yt-dlp/status', MiscController.getYtDlpStatus.bind(this))
+    this.router.post('/yt-dlp/info', MiscController.getYtDlpVideoInfo.bind(this))
   }
 
   //

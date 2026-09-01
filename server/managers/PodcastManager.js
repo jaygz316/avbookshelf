@@ -6,13 +6,14 @@ const Watcher = require('../Watcher')
 
 const fs = require('../libs/fsExtra')
 
-const { getPodcastFeed } = require('../utils/podcastUtils')
+const { getPodcastFeed, matchYouTubeEpisodesWithItunesFeed } = require('../utils/podcastUtils')
 const { removeFile, downloadFile, sanitizeFilename, filePathToPOSIX, getFileTimestampsWithIno } = require('../utils/fileUtils')
 const { levenshteinDistance } = require('../utils/index')
 const opmlParser = require('../utils/parsers/parseOPML')
 const opmlGenerator = require('../utils/generators/opmlGenerator')
 const prober = require('../utils/prober')
 const ffmpegHelpers = require('../utils/ffmpegHelpers')
+const PodcastFinder = require('../finders/PodcastFinder')
 
 const TaskManager = require('./TaskManager')
 const CoverManager = require('../managers/CoverManager')
@@ -21,9 +22,13 @@ const NotificationManager = require('../managers/NotificationManager')
 const LibraryFile = require('../objects/files/LibraryFile')
 const PodcastEpisodeDownload = require('../objects/PodcastEpisodeDownload')
 const AudioFile = require('../objects/files/AudioFile')
+const VideoFile = require('../objects/files/VideoFile')
 
 class PodcastManager {
-  constructor() {
+  constructor(ytDlpManager = null) {
+    /** @type {import('./YtDlpManager')} */
+    this.ytDlpManager = ytDlpManager
+
     /** @type {PodcastEpisodeDownload[]} */
     this.downloadQueue = []
     /** @type {PodcastEpisodeDownload} */
@@ -121,40 +126,83 @@ class PodcastManager {
       await fs.mkdir(this.currentDownload.libraryItem.path)
     }
 
-    // Download episode and tag it
-    const ffmpegDownloadResponse = await ffmpegHelpers.downloadPodcastEpisode(this.currentDownload).catch((error) => {
-      Logger.error(`[PodcastManager] Podcast Episode download failed`, error)
-    })
-    let success = !!ffmpegDownloadResponse?.success
+    let success = false
+    const isYtDlp = this.currentDownload.rssPodcastEpisode?.isYtDlp || this.currentDownload.libraryItem?.media?.feedType === 'youtube' || this.currentDownload.libraryItem?.media?.feedType === 'ytdlp'
 
-    if (success) {
-      // Attempt to ffprobe and add podcast episode audio file
-      success = await this.scanAddPodcastEpisodeAudioFile()
-      if (!success) {
-        Logger.error(`[PodcastManager] Failed to scan and add podcast episode audio file - removing file`)
-        await fs.remove(this.currentDownload.targetPath)
+    if (isYtDlp) {
+      const ytDlpManager = this.ytDlpManager || global.ytDlpManager
+      if (!ytDlpManager?.isAvailable) {
+        Logger.error(`[PodcastManager] yt-dlp is not available to download "${this.currentDownload.episodeTitle}"`)
+        success = false
+      } else {
+        const filename = sanitizeFilename(this.currentDownload.episodeTitle)
+        const quality = this.currentDownload.rssPodcastEpisode?.quality || this.currentDownload.libraryItem?.media?.maxDownloadResolution || 'best_compatible'
+        const downloadResult = await ytDlpManager
+          .downloadVideo(this.currentDownload.url, this.currentDownload.libraryItem.path, filename, quality, (progressInfo) => {
+            this.currentDownload.setProgress(progressInfo.percent, progressInfo.speed, progressInfo.eta)
+            SocketAuthority.emitter('episode_download_progress', {
+              id: this.currentDownload.id,
+              libraryItemId: this.currentDownload.libraryItemId,
+              libraryId: this.currentDownload.libraryId,
+              episodeDisplayTitle: this.currentDownload.rssPodcastEpisode?.title ?? null,
+              progress: progressInfo.percent,
+              progressSpeed: progressInfo.speed,
+              progressEta: progressInfo.eta
+            })
+          })
+          .catch((error) => {
+            Logger.error(`[PodcastManager] yt-dlp download failed for "${this.currentDownload.episodeTitle}":`, error)
+            return null
+          })
+
+        success = !!downloadResult?.filepath
+        if (success) {
+          this.currentDownload.targetFilename = Path.basename(downloadResult.filepath)
+          success = await this.scanAddPodcastEpisodeMediaFile()
+          if (!success) {
+            Logger.error(`[PodcastManager] Failed to scan and add yt-dlp podcast episode video file - removing file`)
+            if (this.currentDownload.targetPath) {
+              await fs.remove(this.currentDownload.targetPath)
+            }
+          }
+        }
       }
-    }
-
-    // If failed due to ffmpeg or ffprobe error, retry without tagging
-    // e.g. RSS feed may have incorrect file extension and file type
-    // See https://github.com/advplyr/audiobookshelf/issues/3837
-    // e.g. Ffmpeg may be download the file without streams causing the ffprobe to fail
-    if (!success && !ffmpegDownloadResponse?.isRequestError) {
-      Logger.info(`[PodcastManager] Retrying episode download without tagging`)
-      // Download episode only
-      success = await downloadFile(this.currentDownload.url, this.currentDownload.targetPath)
-        .then(() => true)
-        .catch((error) => {
-          Logger.error(`[PodcastManager] Podcast Episode download failed`, error)
-          return false
-        })
+    } else {
+      // Download episode and tag it
+      const ffmpegDownloadResponse = await ffmpegHelpers.downloadPodcastEpisode(this.currentDownload).catch((error) => {
+        Logger.error(`[PodcastManager] Podcast Episode download failed`, error)
+      })
+      success = !!ffmpegDownloadResponse?.success
 
       if (success) {
-        success = await this.scanAddPodcastEpisodeAudioFile()
+        // Attempt to ffprobe and add podcast episode media file
+        success = await this.scanAddPodcastEpisodeMediaFile()
         if (!success) {
-          Logger.error(`[PodcastManager] Failed to scan and add podcast episode audio file - removing file`)
+          Logger.error(`[PodcastManager] Failed to scan and add podcast episode media file - removing file`)
           await fs.remove(this.currentDownload.targetPath)
+        }
+      }
+
+      // If failed due to ffmpeg or ffprobe error, retry without tagging
+      // e.g. RSS feed may have incorrect file extension and file type
+      // See https://github.com/advplyr/audiobookshelf/issues/3837
+      // e.g. Ffmpeg may be download the file without streams causing the ffprobe to fail
+      if (!success && !ffmpegDownloadResponse?.isRequestError) {
+        Logger.info(`[PodcastManager] Retrying episode download without tagging`)
+        // Download episode only
+        success = await downloadFile(this.currentDownload.url, this.currentDownload.targetPath)
+          .then(() => true)
+          .catch((error) => {
+            Logger.error(`[PodcastManager] Podcast Episode download failed`, error)
+            return false
+          })
+
+        if (success) {
+          success = await this.scanAddPodcastEpisodeMediaFile()
+          if (!success) {
+            Logger.error(`[PodcastManager] Failed to scan and add podcast episode media file - removing file`)
+            await fs.remove(this.currentDownload.targetPath)
+          }
         }
       }
     }
@@ -186,15 +234,29 @@ class PodcastManager {
   }
 
   /**
-   * Scans the downloaded audio file, create the podcast episode, remove oldest episode if necessary
-   * @returns {Promise<boolean>} - Returns true if added
+   * Alias for scanAddPodcastEpisodeMediaFile
+   * @returns {Promise<boolean>}
    */
   async scanAddPodcastEpisodeAudioFile() {
+    return this.scanAddPodcastEpisodeMediaFile()
+  }
+
+  /**
+   * Scans the downloaded media file (audio or video), create the podcast episode, remove oldest episode if necessary
+   * @returns {Promise<boolean>} - Returns true if added
+   */
+  async scanAddPodcastEpisodeMediaFile() {
     const libraryFile = new LibraryFile()
     await libraryFile.setDataFromPath(this.currentDownload.targetPath, this.currentDownload.targetRelPath)
 
-    const audioFile = await this.probeAudioFile(libraryFile)
-    if (!audioFile) {
+    const isVideo = this.currentDownload.isVideo
+    let mediaFile
+    if (isVideo) {
+      mediaFile = await this.probeVideoFile(libraryFile)
+    } else {
+      mediaFile = await this.probeAudioFile(libraryFile)
+    }
+    if (!mediaFile) {
       return false
     }
 
@@ -204,9 +266,69 @@ class PodcastManager {
       return false
     }
 
-    const podcastEpisode = await Database.podcastEpisodeModel.createFromRssPodcastEpisode(this.currentDownload.rssPodcastEpisode, libraryItem.media.id, audioFile)
+    let podcastEpisode = libraryItem.media.podcastEpisodes?.find((ep) => {
+      if (ep.checkMatchesFeedEpisode && ep.checkMatchesFeedEpisode(this.currentDownload.rssPodcastEpisode)) {
+        return true
+      }
+      return ep.checkMatchesGuidOrEnclosureUrl(this.currentDownload.rssPodcastEpisode?.guid, this.currentDownload.rssPodcastEpisode?.enclosure?.url)
+    })
+
+    if (podcastEpisode) {
+      if (isVideo) {
+        podcastEpisode.videoFile = mediaFile.toJSON()
+        podcastEpisode.episodeMediaType = 'video'
+        podcastEpisode.changed('videoFile', true)
+        podcastEpisode.changed('episodeMediaType', true)
+      } else {
+        podcastEpisode.audioFile = mediaFile.toJSON()
+        if (!podcastEpisode.videoFile) {
+          podcastEpisode.episodeMediaType = 'audio'
+          podcastEpisode.changed('episodeMediaType', true)
+        }
+        podcastEpisode.changed('audioFile', true)
+      }
+      if (this.currentDownload.rssPodcastEpisode?.enclosure?.url) {
+        podcastEpisode.enclosureURL = this.currentDownload.rssPodcastEpisode.enclosure.url
+        podcastEpisode.changed('enclosureURL', true)
+      }
+      if (this.currentDownload.rssPodcastEpisode?.chapters?.length && !podcastEpisode.chapters?.length) {
+        podcastEpisode.chapters = this.currentDownload.rssPodcastEpisode.chapters
+        podcastEpisode.changed('chapters', true)
+      }
+      if (this.currentDownload.rssPodcastEpisode?.guid && !podcastEpisode.extraData?.guid) {
+        podcastEpisode.extraData = { ...(podcastEpisode.extraData || {}), guid: this.currentDownload.rssPodcastEpisode.guid }
+        podcastEpisode.changed('extraData', true)
+      }
+      if (this.currentDownload.rssPodcastEpisode?.itunesGuid && !podcastEpisode.extraData?.itunesGuid) {
+        podcastEpisode.extraData = { ...(podcastEpisode.extraData || {}), itunesGuid: this.currentDownload.rssPodcastEpisode.itunesGuid }
+        podcastEpisode.changed('extraData', true)
+      }
+      await podcastEpisode.save()
+    } else {
+      podcastEpisode = await Database.podcastEpisodeModel.createFromRssPodcastEpisode(
+        this.currentDownload.rssPodcastEpisode,
+        libraryItem.media.id,
+        mediaFile,
+        isVideo
+      )
+      libraryItem.media.podcastEpisodes.push(podcastEpisode)
+    }
 
     libraryItem.libraryFiles.push(libraryFile.toJSON())
+
+    if (isVideo && mediaFile.thumbnail) {
+      const thumbFilename = Path.basename(mediaFile.thumbnail)
+      const thumbPath = Path.join(Path.dirname(libraryFile.metadata.path), thumbFilename)
+      if (await fs.pathExists(thumbPath)) {
+        const alreadyInLibrary = libraryItem.libraryFiles.some((lf) => lf.metadata?.path === filePathToPOSIX(thumbPath))
+        if (!alreadyInLibrary) {
+          const thumbLibraryFile = new LibraryFile()
+          await thumbLibraryFile.setDataFromPath(thumbPath, mediaFile.thumbnail)
+          libraryItem.libraryFiles.push(thumbLibraryFile.toJSON())
+        }
+      }
+    }
+
     // Re-calculating library item size because this wasnt being updated properly for podcasts in v2.20.0 and below
     let libraryItemSize = 0
     libraryItem.libraryFiles.forEach((lf) => {
@@ -216,8 +338,6 @@ class PodcastManager {
     })
     libraryItem.size = libraryItemSize
     libraryItem.changed('libraryFiles', true)
-
-    libraryItem.media.podcastEpisodes.push(podcastEpisode)
 
     if (this.currentDownload.isAutoDownload) {
       // Check setting maxEpisodesToKeep and remove episode if necessary
@@ -238,7 +358,10 @@ class PodcastManager {
           libraryItem.media.podcastEpisodes = libraryItem.media.podcastEpisodes.filter((ep) => ep.id !== episodeToRemove.id)
 
           // Remove library file
-          libraryItem.libraryFiles = libraryItem.libraryFiles.filter((lf) => lf.ino !== episodeToRemove.audioFile.ino)
+          const fileIno = episodeToRemove.audioFile?.ino || episodeToRemove.videoFile?.ino
+          if (fileIno) {
+            libraryItem.libraryFiles = libraryItem.libraryFiles.filter((lf) => lf.ino !== fileIno)
+          }
         }
       }
     }
@@ -264,7 +387,7 @@ class PodcastManager {
   }
 
   /**
-   * Find oldest episode publishedAt and delete the audio file
+   * Find oldest episode publishedAt and delete the media file
    *
    * @param {import('../models/LibraryItem').LibraryItemExpanded} libraryItem
    * @param {string} episodeIdJustDownloaded
@@ -287,9 +410,10 @@ class PodcastManager {
       }
     }
 
-    if (oldestEpisode?.audioFile) {
+    const mediaFileObj = oldestEpisode?.audioFile || oldestEpisode?.videoFile
+    if (mediaFileObj) {
       Logger.info(`[PodcastManager] Deleting oldest episode "${oldestEpisode.title}"`)
-      const successfullyDeleted = await removeFile(oldestEpisode.audioFile.metadata.path)
+      const successfullyDeleted = await removeFile(mediaFileObj.metadata.path)
       if (successfullyDeleted) {
         return oldestEpisode
       } else {
@@ -315,6 +439,16 @@ class PodcastManager {
     newAudioFile.setDataFromProbe(libraryFile, mediaProbeData)
     newAudioFile.index = 1
     return newAudioFile
+  }
+
+  /**
+   *
+   * @param {LibraryFile} libraryFile
+   * @returns {Promise<VideoFile|null>}
+   */
+  async probeVideoFile(libraryFile) {
+    const { videoScanner } = require('../video')
+    return videoScanner.probeVideoFile(libraryFile)
   }
 
   /**
@@ -371,6 +505,99 @@ class PodcastManager {
   }
 
   /**
+   * Check if a feed URL or feed type is YouTube/yt-dlp
+   * @param {string} feedURL
+   * @param {string} feedType
+   * @returns {boolean}
+   */
+  isYouTubeFeed(feedURL, feedType) {
+    if (!feedURL) return false
+    if (feedURL.includes('youtube.com/') || feedURL.includes('youtu.be/')) return true
+    if (feedType === 'youtube' || feedType === 'ytdlp') {
+      const cleanUrl = feedURL.split('?')[0].toLowerCase()
+      if (cleanUrl.endsWith('.xml') || cleanUrl.endsWith('.rss')) {
+        return false
+      }
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Check YouTube channel/playlist for new episodes using yt-dlp
+   * @param {import('../models/LibraryItem')} podcastLibraryItem
+   * @param {number} dateToCheckForEpisodesAfter
+   * @param {number} maxNewEpisodes
+   * @returns {Promise<import('../utils/podcastUtils').RssPodcastEpisode[]|null>}
+   */
+  async checkYouTubeFeedForNewEpisodes(podcastLibraryItem, dateToCheckForEpisodesAfter, maxNewEpisodes = 3) {
+    const ytDlpManager = this.ytDlpManager || global.ytDlpManager
+    if (!ytDlpManager?.isAvailable) {
+      Logger.warn(`[PodcastManager] yt-dlp is not available for YouTube feed check`)
+      return null
+    }
+
+    try {
+      const { episodes } = await ytDlpManager.getChannelFeed(podcastLibraryItem.media.feedURL, 20)
+      if (!episodes?.length) return []
+
+      let feedEpisodes = episodes.map((ep) => {
+        const enclosureUrl = ep.enclosure?.url || ep.url || ''
+        return {
+          title: ep.title,
+          subtitle: '',
+          description: ep.description || '',
+          descriptionPlain: ep.description || '',
+          pubDate: ep.pubDate || '',
+          episodeType: 'full',
+          season: ep.season || '',
+          episode: ep.episode || '',
+          author: ep.author || '',
+          duration: ep.duration ? String(ep.duration) : '',
+          durationSeconds: ep.duration ? Number(ep.duration) : null,
+          explicit: '',
+          publishedAt: ep.publishedAt,
+          enclosure: { url: enclosureUrl, type: ep.enclosure?.type || 'video/mp4' },
+          guid: ep.guid,
+          isVideo: true,
+          isYtDlp: true,
+          thumbnail: ep.thumbnail
+        }
+      })
+
+      // If podcast is linked to iTunes, attempt to match episodes with the iTunes feed FIRST
+      // so episodes have full canonical metadata (itunesGuid, canonicalTitle, episode numbers) for accurate deduplication
+      if (podcastLibraryItem.media.itunesId && feedEpisodes.length) {
+        try {
+          const itunesPodcast = await PodcastFinder.lookup(podcastLibraryItem.media.itunesId)
+          if (itunesPodcast?.feedUrl) {
+            const itunesFeed = await getPodcastFeed(itunesPodcast.feedUrl)
+            if (itunesFeed?.episodes?.length) {
+              const matchResult = matchYouTubeEpisodesWithItunesFeed(feedEpisodes, itunesFeed.episodes, { podcastTitle: podcastLibraryItem.media.title })
+              feedEpisodes = matchResult.matchedEpisodes
+            }
+          }
+        } catch (matchErr) {
+          Logger.warn(`[PodcastManager] Failed to match YouTube episodes with iTunes feed: ${matchErr.message}`)
+        }
+      }
+
+      let newEpisodes = feedEpisodes
+        .filter((ep) => !dateToCheckForEpisodesAfter || ep.publishedAt > dateToCheckForEpisodesAfter)
+        .filter((ep) => !podcastLibraryItem.media.checkHasEpisodeByFeedEpisode(ep))
+
+      if (maxNewEpisodes > 0) {
+        newEpisodes = newEpisodes.slice(0, maxNewEpisodes)
+      }
+
+      return newEpisodes
+    } catch (error) {
+      Logger.error(`[PodcastManager] YouTube feed check failed for ${podcastLibraryItem.media.title}:`, error)
+      return null
+    }
+  }
+
+  /**
    *
    * @param {import('../models/LibraryItem')} podcastLibraryItem
    * @param {number} dateToCheckForEpisodesAfter - Unix timestamp
@@ -382,6 +609,11 @@ class PodcastManager {
       Logger.error(`[PodcastManager] checkPodcastForNewEpisodes no feed url for ${podcastLibraryItem.media.title} (ID: ${podcastLibraryItem.id})`)
       return null
     }
+
+    if (this.isYouTubeFeed(podcastLibraryItem.media.feedURL, podcastLibraryItem.media.feedType)) {
+      return this.checkYouTubeFeedForNewEpisodes(podcastLibraryItem, dateToCheckForEpisodesAfter, maxNewEpisodes)
+    }
+
     const feed = await Promise.race([
       getPodcastFeed(podcastLibraryItem.media.feedURL),
       new Promise((_, reject) =>

@@ -1,12 +1,14 @@
 ARG NUSQLITE3_DIR="/usr/local/lib/nusqlite3"
 ARG NUSQLITE3_PATH="${NUSQLITE3_DIR}/libnusqlite3.so"
 
-### STAGE 0: Build client ###
-FROM node:20-alpine AS build-client
+### STAGE 0: Build client (Natively on host CPU via $BUILDPLATFORM) ###
+FROM --platform=$BUILDPLATFORM node:20-alpine AS build-client
 
 WORKDIR /client
-COPY /client /client
-RUN npm ci && npm cache clean --force
+COPY client/package*.json ./
+RUN --mount=type=cache,target=/root/.npm \
+  npm ci
+COPY client/ ./
 RUN npm run generate
 
 ### STAGE 1: Build server ###
@@ -25,8 +27,7 @@ RUN apk add --no-cache --update \
   unzip
 
 WORKDIR /server
-COPY index.js package* /server
-COPY /server /server/server
+COPY package*.json ./
 
 RUN case "$TARGETPLATFORM" in \
   "linux/amd64") \
@@ -38,7 +39,11 @@ RUN case "$TARGETPLATFORM" in \
   unzip /tmp/library.zip -d $NUSQLITE3_DIR && \
   rm /tmp/library.zip
 
-RUN npm ci --only=production
+RUN --mount=type=cache,target=/root/.npm \
+  npm ci --only=production
+
+COPY index.js /server/
+COPY server/ /server/server/
 
 ### STAGE 2: Create minimal runtime image ###
 FROM node:20-alpine
@@ -50,7 +55,17 @@ ARG NUSQLITE3_PATH
 RUN apk add --no-cache --update \
   tzdata \
   ffmpeg \
-  tini
+  libva-utils \
+  python3 \
+  py3-pip \
+  tini && \
+  pip3 install --no-cache-dir --break-system-packages yt-dlp
+
+ARG TARGETARCH
+# Intel VA-API drivers are x86_64 only
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+  apk add --no-cache intel-media-driver libva-intel-driver; \
+  fi
 
 WORKDIR /app
 
@@ -71,3 +86,4 @@ ENV NUSQLITE3_PATH=${NUSQLITE3_PATH}
 
 ENTRYPOINT ["tini", "--"]
 CMD ["node", "index.js"]
+

@@ -429,6 +429,16 @@ class LibraryItemController {
   }
 
   /**
+   * GET: /api/items/:id/episode/:episodeId/thumbnail
+   *
+   * @param {Request} req
+   * @param {Response} res
+   */
+  async getEpisodeThumbnail(req, res) {
+    return this.getCover(req, res)
+  }
+
+  /**
    * POST: /api/items/:id/play
    *
    * @this {import('../routers/ApiRouter')}
@@ -437,6 +447,10 @@ class LibraryItemController {
    * @param {Response} res
    */
   startPlaybackSession(req, res) {
+    if (req.libraryItem.isPodcast) {
+      Logger.error(`[LibraryItemController] startPlaybackSession on podcast requires episodeId ${req.libraryItem.id}`)
+      return res.status(400).send('Episode ID is required to play podcast')
+    }
     if (!req.libraryItem.hasAudioTracks) {
       Logger.error(`[LibraryItemController] startPlaybackSession cannot playback ${req.libraryItem.id}`)
       return res.sendStatus(404)
@@ -1028,8 +1042,8 @@ class LibraryItemController {
       if (!req.libraryItem.media.hasMediaFiles) {
         req.libraryItem.isMissing = true
       }
-    } else if (req.libraryItem.media.podcastEpisodes.some((ep) => ep.audioFile.ino === req.params.fileid)) {
-      const episodeToRemove = req.libraryItem.media.podcastEpisodes.find((ep) => ep.audioFile.ino === req.params.fileid)
+    } else if (req.libraryItem.media.podcastEpisodes.some((ep) => (ep.audioFile?.ino || ep.videoFile?.ino) === req.params.fileid)) {
+      const episodeToRemove = req.libraryItem.media.podcastEpisodes.find((ep) => (ep.audioFile?.ino || ep.videoFile?.ino) === req.params.fileid)
       // Remove episode from all playlists
       await Database.playlistModel.removeMediaItemsFromPlaylists([episodeToRemove.id])
 
@@ -1046,7 +1060,7 @@ class LibraryItemController {
       // Remove episode
       await episodeToRemove.destroy()
 
-      req.libraryItem.media.podcastEpisodes = req.libraryItem.media.podcastEpisodes.filter((ep) => ep.audioFile.ino !== req.params.fileid)
+      req.libraryItem.media.podcastEpisodes = req.libraryItem.media.podcastEpisodes.filter((ep) => (ep.audioFile?.ino || ep.videoFile?.ino) !== req.params.fileid)
     }
 
     if (req.libraryItem.media.changed()) {

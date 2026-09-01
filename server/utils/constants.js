@@ -56,3 +56,16 @@ module.exports.AudioMimeType = {
   MPEG: 'audio/mpeg',
   MPG: 'audio/mpeg'
 }
+
+module.exports.VideoMimeType = {
+  MP4: 'video/mp4',
+  M4V: 'video/mp4',
+  MKV: 'video/x-matroska',
+  WEBM: 'video/webm',
+  AVI: 'video/x-msvideo',
+  MOV: 'video/quicktime',
+  WMV: 'video/x-ms-wmv',
+  FLV: 'video/x-flv',
+  TS: 'video/mp2t',
+  OGV: 'video/ogg'
+}
