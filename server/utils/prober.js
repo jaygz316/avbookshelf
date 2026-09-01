@@ -100,6 +100,8 @@ function parseMediaStreamInfo(stream, all_streams, total_bit_rate) {
   }
 
   if (info.type === 'video') {
+    var disposition = stream.disposition || {}
+    info.attached_pic = disposition.attached_pic === 1 || disposition.attached_pic === '1'
     info.profile = stream.profile || null
     info.is_avc = stream.is_avc !== '0' && stream.is_avc !== 'false'
     info.pix_fmt = stream.pix_fmt || null
@@ -255,7 +257,7 @@ function parseProbeData(data, verbose = false) {
     }
 
     const cleaned_streams = streams.map((s) => parseMediaStreamInfo(s, streams, cleanedData.bit_rate))
-    cleanedData.video_stream = cleaned_streams.find((s) => s.type === 'video')
+    cleanedData.video_stream = cleaned_streams.find((s) => s.type === 'video' && !s.attached_pic) || cleaned_streams.find((s) => s.type === 'video')
     const audioStreams = cleaned_streams.filter((s) => s.type === 'audio')
     cleanedData.audio_stream = getDefaultAudioStream(audioStreams)
 

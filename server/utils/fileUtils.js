@@ -64,6 +64,23 @@ async function getFileTimestampsWithIno(path) {
 }
 module.exports.getFileTimestampsWithIno = getFileTimestampsWithIno
 
+function getFileTimestampsWithInoSync(path) {
+  try {
+    var stat = fs.statSync(path, { bigint: true })
+    return {
+      size: Number(stat.size),
+      mtimeMs: Number(stat.mtimeMs),
+      ctimeMs: Number(stat.ctimeMs),
+      birthtimeMs: Number(stat.birthtimeMs),
+      ino: String(stat.ino)
+    }
+  } catch (err) {
+    Logger.error(`[fileUtils] Failed to getFileTimestampsWithInoSync for path "${path}"`, err)
+    return false
+  }
+}
+module.exports.getFileTimestampsWithInoSync = getFileTimestampsWithInoSync
+
 /**
  * Get file size
  *
@@ -295,7 +312,7 @@ module.exports.getFilePathItemFromFileUpdate = (fileUpdate) => {
  * @param {Function} [contentTypeFilter] validate content type before writing
  * @returns {Promise}
  */
-module.exports.downloadFile = (url, filepath, contentTypeFilter = null) => {
+module.exports.downloadFile = (url, filepath, contentTypeFilter = null, onProgress = null) => {
   return new Promise(async (resolve, reject) => {
     Logger.debug(`[fileUtils] Downloading file to ${filepath}`)
     axios({
@@ -317,6 +334,9 @@ module.exports.downloadFile = (url, filepath, contentTypeFilter = null) => {
 
         const totalSize = parseInt(response.headers['content-length'], 10)
         let downloadedSize = 0
+        let lastTime = Date.now()
+        let lastBytes = 0
+        let lastEmitTime = 0
 
         // Write to filepath
         const writer = fs.createWriteStream(filepath)
@@ -325,10 +345,42 @@ module.exports.downloadFile = (url, filepath, contentTypeFilter = null) => {
         let lastProgress = 0
         response.data.on('data', (chunk) => {
           downloadedSize += chunk.length
-          const progress = totalSize ? Math.round((downloadedSize / totalSize) * 100) : 0
-          if (progress >= lastProgress + 5) {
+          const now = Date.now()
+          const progress = totalSize ? Math.round((downloadedSize / totalSize) * 100) : null
+          if (totalSize && progress >= lastProgress + 5) {
             Logger.debug(`[fileUtils] File "${Path.basename(filepath)}" download progress: ${progress}% (${downloadedSize}/${totalSize} bytes)`)
             lastProgress = progress
+          }
+
+          if (now - lastEmitTime >= 300 || (totalSize && downloadedSize >= totalSize)) {
+            const timeDiff = (now - lastTime) / 1000
+            const bytesDiff = downloadedSize - lastBytes
+            let speedStr = null
+            if (timeDiff > 0 && bytesDiff > 0) {
+              const bytesPerSec = bytesDiff / timeDiff
+              if (bytesPerSec >= 1024 * 1024 * 1024) speedStr = `${(bytesPerSec / (1024 * 1024 * 1024)).toFixed(2)} GiB/s`
+              else if (bytesPerSec >= 1024 * 1024) speedStr = `${(bytesPerSec / (1024 * 1024)).toFixed(2)} MiB/s`
+              else if (bytesPerSec >= 1024) speedStr = `${(bytesPerSec / 1024).toFixed(2)} KiB/s`
+              else speedStr = `${Math.round(bytesPerSec)} B/s`
+            }
+            let etaStr = null
+            if (progress && totalSize && timeDiff > 0 && bytesDiff > 0) {
+              const remainingBytes = totalSize - downloadedSize
+              const remainingSecs = Math.round(remainingBytes / (bytesDiff / timeDiff))
+              if (remainingSecs >= 0 && isFinite(remainingSecs)) {
+                const mins = Math.floor(remainingSecs / 60)
+                const secs = remainingSecs % 60
+                etaStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+              }
+            }
+
+            if (typeof onProgress === 'function') {
+              onProgress({ percent: progress, speed: speedStr, eta: etaStr })
+            }
+
+            lastTime = now
+            lastBytes = downloadedSize
+            lastEmitTime = now
           }
         })
 

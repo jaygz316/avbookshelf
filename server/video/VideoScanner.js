@@ -9,6 +9,8 @@ const globals = require('../utils/globals')
 const VideoFile = require('./VideoFile')
 const LibraryFile = require('../objects/files/LibraryFile')
 const Database = require('../Database')
+const { extractEpisodeNumbers } = require('./VideoEpisodeMatcher')
+const { parseInfoJsonMetadata, parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
 
 class VideoScanner {
   constructor() {}
@@ -16,7 +18,7 @@ class VideoScanner {
   /**
    * Scan a video library file and return VideoFile and probe data
    * @param {import('../objects/files/LibraryFile')} libraryFile
-   * @returns {Promise<{videoFile: VideoFile, probeData: Object}|null>}
+   * @returns {Promise<{videoFile: VideoFile, probeData: Object, infoJson: Object|null}|null>}
    */
   async scanVideoLibraryFile(libraryFile) {
     const probeData = await prober.probe(libraryFile.metadata.path)
@@ -28,9 +30,54 @@ class VideoScanner {
     videoFile.setDataFromProbe(libraryFile, probeData)
     videoFile.index = 1
 
+    let infoJson = null
+
     try {
       const filenameNoExt = libraryFile.metadata.filenameNoExt || Path.parse(libraryFile.metadata.path).name
       const videoDir = Path.dirname(libraryFile.metadata.path)
+      const filename = libraryFile.metadata.filename || Path.basename(libraryFile.metadata.path)
+
+      // Look for companion .info.json created by yt-dlp
+      const infoJsonPath1 = Path.join(videoDir, `${filenameNoExt}.info.json`)
+      const infoJsonPath2 = Path.join(videoDir, `${filename}.info.json`)
+      let infoJsonPathToUse = null
+      if (await fsExtra.pathExists(infoJsonPath1)) {
+        infoJsonPathToUse = infoJsonPath1
+      } else if (await fsExtra.pathExists(infoJsonPath2)) {
+        infoJsonPathToUse = infoJsonPath2
+      }
+
+      if (infoJsonPathToUse) {
+        try {
+          const infoRawText = await fsExtra.readFile(infoJsonPathToUse, 'utf-8')
+          infoJson = parseInfoJsonMetadata(infoRawText)
+          if (infoJson) {
+            Logger.debug(`[VideoScanner] Loaded .info.json metadata from "${infoJsonPathToUse}"`)
+          }
+        } catch (e) {
+          Logger.warn(`[VideoScanner] Failed to parse .info.json at "${infoJsonPathToUse}":`, e)
+        }
+      }
+
+      // Enrich videoFile.metaTags if .info.json is available
+      if (infoJson) {
+        if (!videoFile.metaTags) videoFile.metaTags = {}
+        if (!videoFile.metaTags.tagTitle && infoJson.title) videoFile.metaTags.tagTitle = infoJson.title
+        if (!videoFile.metaTags.tagDate && infoJson.pubDate) videoFile.metaTags.tagDate = infoJson.pubDate
+        if (!videoFile.metaTags.tagDescription && infoJson.description) videoFile.metaTags.tagDescription = infoJson.description
+        if (!videoFile.metaTags.tagComment && infoJson.description) videoFile.metaTags.tagComment = infoJson.description
+        if (!videoFile.metaTags.tagArtist && infoJson.author) videoFile.metaTags.tagArtist = infoJson.author
+        if (!videoFile.metaTags.tagTrack && infoJson.episode) videoFile.metaTags.tagTrack = infoJson.episode
+        if (!videoFile.metaTags.tagDisc && infoJson.season) videoFile.metaTags.tagDisc = infoJson.season
+        if (!videoFile.metaTags.tagSubtitle && infoJson.subtitle) videoFile.metaTags.tagSubtitle = infoJson.subtitle
+
+        if (!probeData.chapters?.length && infoJson.chapters?.length) {
+          probeData.chapters = infoJson.chapters
+          videoFile.chapters = infoJson.chapters
+        }
+        videoFile.infoJson = infoJson
+      }
+
       const thumbFilename = `${filenameNoExt}-thumb.jpg`
       const thumbPath = Path.join(videoDir, thumbFilename)
 
@@ -63,10 +110,10 @@ class VideoScanner {
         videoFile.thumbnail = relativeThumbnailPath
       }
     } catch (err) {
-      Logger.error(`[VideoScanner] Failed to extract video thumbnail for "${libraryFile.metadata.path}"`, err)
+      Logger.error(`[VideoScanner] Failed to extract video thumbnail/metadata for "${libraryFile.metadata.path}"`, err)
     }
 
-    return { videoFile, probeData }
+    return { videoFile, probeData, infoJson }
   }
 
   /**
@@ -88,14 +135,58 @@ class VideoScanner {
     if (!videoLibraryFilesModified.length) return hasChanges
 
     for (const podcastEpisode of existingPodcastEpisodes) {
-      if (!podcastEpisode.videoFile) continue
-      const modifiedMatch = videoLibraryFilesModified.find((lf) => lf.old.metadata.path === podcastEpisode.videoFile.metadata.path || lf.old.ino === podcastEpisode.videoFile.ino)
+      const currentMediaFile = podcastEpisode.videoFile || podcastEpisode.audioFile
+      if (!currentMediaFile) continue
+      const modifiedMatch = videoLibraryFilesModified.find((lf) =>
+        (lf.old && (lf.old.metadata?.path === currentMediaFile.metadata?.path || lf.old.ino === currentMediaFile.ino)) ||
+        (lf.new && (lf.new.metadata?.path === currentMediaFile.metadata?.path || lf.new.ino === currentMediaFile.ino))
+      )
       if (modifiedMatch) {
         const res = await this.scanVideoLibraryFile(modifiedMatch.new)
         if (res) {
           podcastEpisode.videoFile = res.videoFile.toJSON()
+          podcastEpisode.episodeMediaType = 'video'
           podcastEpisode.changed('videoFile', true)
+          podcastEpisode.changed('episodeMediaType', true)
+          if (podcastEpisode.audioFile) {
+            podcastEpisode.audioFile = null
+            podcastEpisode.changed('audioFile', true)
+          }
           AudioFileScanner.setPodcastEpisodeMetadataFromAudioMetaTags(podcastEpisode, libraryScan)
+
+          if (res.infoJson) {
+            if (!podcastEpisode.publishedAt && res.infoJson.publishedAt) {
+              podcastEpisode.publishedAt = res.infoJson.publishedAt
+              podcastEpisode.pubDate = res.infoJson.pubDate
+              podcastEpisode.changed('publishedAt', true)
+              podcastEpisode.changed('pubDate', true)
+            }
+            if (!podcastEpisode.description && res.infoJson.description) {
+              podcastEpisode.description = res.infoJson.description
+              podcastEpisode.changed('description', true)
+            }
+            if (!podcastEpisode.subtitle && res.infoJson.subtitle) {
+              podcastEpisode.subtitle = res.infoJson.subtitle
+              podcastEpisode.changed('subtitle', true)
+            }
+            if (!podcastEpisode.season && res.infoJson.season) {
+              podcastEpisode.season = res.infoJson.season
+              podcastEpisode.changed('season', true)
+            }
+            if (!podcastEpisode.episode && res.infoJson.episode) {
+              podcastEpisode.episode = res.infoJson.episode
+              podcastEpisode.changed('episode', true)
+            }
+            if (!podcastEpisode.chapters?.length && res.infoJson.chapters?.length) {
+              podcastEpisode.chapters = res.infoJson.chapters
+              podcastEpisode.changed('chapters', true)
+            }
+            if (res.infoJson.extraData && !podcastEpisode.extraData?.guid) {
+              podcastEpisode.extraData = { ...(podcastEpisode.extraData || {}), ...res.infoJson.extraData }
+              podcastEpisode.changed('extraData', true)
+            }
+          }
+
           libraryScan.addLog(LogLevel.INFO, `Podcast video episode "${podcastEpisode.title}" keys changed [${podcastEpisode.changed()?.join(', ')}]`)
           await podcastEpisode.save()
           hasChanges = true
@@ -131,11 +222,18 @@ class VideoScanner {
       if (!res) continue
 
       const videoFilenameNoExt = videoLf.metadata?.filenameNoExt || res.videoFile.metadata?.filenameNoExt || Path.parse(videoLf.metadata?.filename || '').name
-      const videoTitle = res.probeData.audioMetaTags?.tagTitle || videoFilenameNoExt || res.videoFile.metadata.filename.replace(/\.[^.]+$/, '')
+      const infoJson = res.infoJson
+      const videoTitle = infoJson?.title || res.probeData.audioMetaTags?.tagTitle || videoFilenameNoExt || res.videoFile.metadata.filename.replace(/\.[^.]+$/, '')
+      const extracted = extractEpisodeNumbers(videoTitle)
+      const season = infoJson?.season || extracted.season || null
+      const episode = infoJson?.episode || extracted.episode || null
 
       // Check if this video file is already linked to an existing episode or matches an existing audio episode
       const matchingEpisode = existingPodcastEpisodes.find((ep) => {
         if (ep.videoFile && (ep.videoFile.ino === videoLf.ino || filePathToPOSIX(ep.videoFile.metadata?.path) === filePathToPOSIX(videoLf.metadata.path))) {
+          return true
+        }
+        if (ep.audioFile && (ep.audioFile.ino === videoLf.ino || filePathToPOSIX(ep.audioFile.metadata?.path) === filePathToPOSIX(videoLf.metadata.path))) {
           return true
         }
         if (ep.videoFile) {
@@ -161,9 +259,44 @@ class VideoScanner {
         matchingEpisode.episodeMediaType = 'video'
         matchingEpisode.changed('videoFile', true)
         matchingEpisode.changed('episodeMediaType', true)
-        if (!matchingEpisode.chapters?.length && res.probeData.chapters?.length) {
-          matchingEpisode.chapters = res.probeData.chapters
-          matchingEpisode.changed('chapters', true)
+        if (matchingEpisode.audioFile) {
+          matchingEpisode.audioFile = null
+          matchingEpisode.changed('audioFile', true)
+        }
+        if (!matchingEpisode.chapters?.length) {
+          if (res.probeData.chapters?.length) {
+            matchingEpisode.chapters = res.probeData.chapters
+            matchingEpisode.changed('chapters', true)
+          } else if (infoJson?.chapters?.length) {
+            matchingEpisode.chapters = infoJson.chapters
+            matchingEpisode.changed('chapters', true)
+          }
+        }
+        if (!matchingEpisode.publishedAt && infoJson?.publishedAt) {
+          matchingEpisode.publishedAt = infoJson.publishedAt
+          matchingEpisode.pubDate = infoJson.pubDate
+          matchingEpisode.changed('publishedAt', true)
+          matchingEpisode.changed('pubDate', true)
+        }
+        if (!matchingEpisode.description && infoJson?.description) {
+          matchingEpisode.description = infoJson.description
+          matchingEpisode.changed('description', true)
+        }
+        if (!matchingEpisode.subtitle && infoJson?.subtitle) {
+          matchingEpisode.subtitle = infoJson.subtitle
+          matchingEpisode.changed('subtitle', true)
+        }
+        if (!matchingEpisode.season && season) {
+          matchingEpisode.season = season
+          matchingEpisode.changed('season', true)
+        }
+        if (!matchingEpisode.episode && episode) {
+          matchingEpisode.episode = episode
+          matchingEpisode.changed('episode', true)
+        }
+        if (infoJson?.extraData && !matchingEpisode.extraData?.guid) {
+          matchingEpisode.extraData = { ...(matchingEpisode.extraData || {}), ...infoJson.extraData }
+          matchingEpisode.changed('extraData', true)
         }
         AudioFileScanner.setPodcastEpisodeMetadataFromAudioMetaTags(matchingEpisode, libraryScan)
         libraryScan.addLog(LogLevel.INFO, `Updated existing podcast episode "${matchingEpisode.title}" with video file`)
@@ -172,18 +305,19 @@ class VideoScanner {
       } else {
         const newEpisode = {
           title: videoTitle,
-          subtitle: null,
-          season: null,
-          episode: null,
-          episodeType: null,
-          pubDate: null,
-          publishedAt: null,
-          description: null,
+          subtitle: infoJson?.subtitle || null,
+          season,
+          episode,
+          episodeType: infoJson?.episodeType || 'full',
+          pubDate: infoJson?.pubDate || null,
+          publishedAt: infoJson?.publishedAt || null,
+          description: infoJson?.description || null,
           audioFile: null,
           videoFile: res.videoFile.toJSON(),
           episodeMediaType: 'video',
-          chapters: res.probeData.chapters || [],
-          podcastId: media.id
+          chapters: res.probeData.chapters?.length ? res.probeData.chapters : (infoJson?.chapters || []),
+          podcastId: media.id,
+          extraData: infoJson?.extraData || {}
         }
         const newPodcastEpisode = Database.podcastEpisodeModel.build(newEpisode)
         AudioFileScanner.setPodcastEpisodeMetadataFromAudioMetaTags(newPodcastEpisode, libraryScan)
@@ -214,9 +348,12 @@ class VideoScanner {
    * Process scanned video files for a new podcast library item
    */
   processScannedVideoFilesForNewItem(libraryItemData, scannedVideoFiles, newPodcastEpisodes, AudioFileScanner, libraryScan) {
-    for (const { videoFile, probeData } of scannedVideoFiles) {
+    for (const { videoFile, probeData, infoJson } of scannedVideoFiles) {
       const videoFilenameNoExt = videoFile.metadata?.filenameNoExt || Path.parse(videoFile.metadata?.filename || '').name
-      const videoTitle = probeData.audioMetaTags?.tagTitle || videoFilenameNoExt || videoFile.metadata.filename.replace(/\.[^.]+$/, '')
+      const videoTitle = infoJson?.title || probeData.audioMetaTags?.tagTitle || videoFilenameNoExt || videoFile.metadata.filename.replace(/\.[^.]+$/, '')
+      const extracted = extractEpisodeNumbers(videoTitle)
+      const season = infoJson?.season || extracted.season || null
+      const episode = infoJson?.episode || extracted.episode || null
 
       const existingMatchingEp = newPodcastEpisodes.find((ep) => {
         if (ep.videoFile) {
@@ -239,26 +376,55 @@ class VideoScanner {
 
       if (existingMatchingEp) {
         existingMatchingEp.videoFile = videoFile.toJSON()
+        existingMatchingEp.audioFile = null
         existingMatchingEp.episodeMediaType = 'video'
-        if (!existingMatchingEp.chapters?.length && probeData.chapters?.length) {
-          existingMatchingEp.chapters = probeData.chapters
+        if (videoFile.thumbnail) {
+          existingMatchingEp.thumbnail = videoFile.thumbnail
+        }
+        if (!existingMatchingEp.chapters?.length) {
+          if (probeData.chapters?.length) {
+            existingMatchingEp.chapters = probeData.chapters
+          } else if (infoJson?.chapters?.length) {
+            existingMatchingEp.chapters = infoJson.chapters
+          }
+        }
+        if (!existingMatchingEp.publishedAt && infoJson?.publishedAt) {
+          existingMatchingEp.publishedAt = infoJson.publishedAt
+          existingMatchingEp.pubDate = infoJson.pubDate
+        }
+        if (!existingMatchingEp.description && infoJson?.description) {
+          existingMatchingEp.description = infoJson.description
+        }
+        if (!existingMatchingEp.subtitle && infoJson?.subtitle) {
+          existingMatchingEp.subtitle = infoJson.subtitle
+        }
+        if (!existingMatchingEp.season && season) {
+          existingMatchingEp.season = season
+        }
+        if (!existingMatchingEp.episode && episode) {
+          existingMatchingEp.episode = episode
+        }
+        if (infoJson?.extraData && !existingMatchingEp.extraData?.guid) {
+          existingMatchingEp.extraData = { ...(existingMatchingEp.extraData || {}), ...infoJson.extraData }
         }
         AudioFileScanner.setPodcastEpisodeMetadataFromAudioMetaTags(existingMatchingEp, libraryScan)
         libraryScan.addLog(LogLevel.INFO, `Linked video file to existing podcast episode "${existingMatchingEp.title}"`)
       } else {
         const newEpisode = {
           title: videoTitle,
-          subtitle: null,
-          season: null,
-          episode: null,
-          episodeType: null,
-          pubDate: null,
-          publishedAt: null,
-          description: null,
+          subtitle: infoJson?.subtitle || null,
+          season,
+          episode,
+          episodeType: infoJson?.episodeType || 'full',
+          pubDate: infoJson?.pubDate || null,
+          publishedAt: infoJson?.publishedAt || null,
+          description: infoJson?.description || null,
           audioFile: null,
           videoFile: videoFile.toJSON(),
           episodeMediaType: 'video',
-          chapters: probeData.chapters || []
+          thumbnail: videoFile.thumbnail || null,
+          chapters: probeData.chapters?.length ? probeData.chapters : (infoJson?.chapters || []),
+          extraData: infoJson?.extraData || {}
         }
 
         AudioFileScanner.setPodcastEpisodeMetadataFromAudioMetaTags(newEpisode, libraryScan)

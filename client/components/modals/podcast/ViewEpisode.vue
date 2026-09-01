@@ -49,6 +49,8 @@
 </template>
 
 <script>
+import { isVideoEpisode } from '@/video/videoUtils'
+
 export default {
   data() {
     return {
@@ -92,7 +94,7 @@ export default {
       return this.mediaMetadata.author
     },
     isVideo() {
-      return this.episode.episodeMediaType === 'video' || !!this.episode.videoFile
+      return isVideoEpisode(this.episode)
     },
     mediaFileFilename() {
       return this.episode.videoFile?.metadata?.filename || this.episode.audioFile?.metadata?.filename || ''

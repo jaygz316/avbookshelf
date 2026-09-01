@@ -5,6 +5,7 @@ const { LogLevel } = require('../utils/constants')
 const { parseOverdriveMediaMarkersAsChapters } = require('../utils/parsers/parseOverdriveMediaMarkers')
 const parseNameString = require('../utils/parsers/parseNameString')
 const parseSeriesString = require('../utils/parsers/parseSeriesString')
+const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
 const LibraryItem = require('../models/LibraryItem')
 const AudioFile = require('../objects/files/AudioFile')
 
@@ -467,10 +468,10 @@ class AudioFileScanner {
         value = value.trim() // Trim whitespace
 
         if (mapping.key === 'pubDate') {
-          const pubJsDate = new Date(value)
-          if (pubJsDate && !isNaN(pubJsDate)) {
-            podcastEpisode.publishedAt = pubJsDate.valueOf()
-            podcastEpisode.pubDate = value
+          const dateParsed = parseDateToTimestampAndString(value)
+          if (dateParsed.publishedAt) {
+            podcastEpisode.publishedAt = dateParsed.publishedAt
+            podcastEpisode.pubDate = dateParsed.pubDate || value
             scanLogger.addLog(LogLevel.DEBUG, `Mapping metadata to key ${tagToUse} => ${mapping.key}: ${podcastEpisode[mapping.key]}`)
           } else {
             scanLogger.addLog(LogLevel.WARN, `Mapping pubDate with tag ${tagToUse} has invalid date "${value}"`)

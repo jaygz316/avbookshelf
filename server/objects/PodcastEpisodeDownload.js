@@ -63,13 +63,21 @@ class PodcastEpisodeDownload {
     return Path.extname(cleanUrl).substring(1).toLowerCase()
   }
   get isVideo() {
-    return this.rssPodcastEpisode?.isVideo || false
+    if (this.rssPodcastEpisode?.isVideo) return true
+    if (this.enclosureType?.startsWith('video/')) return true
+    if (this.enclosureType === 'application/x-mp4' || this.enclosureType === 'application/mp4') return true
+    if (globals.SupportedVideoTypes?.includes(this.urlFileExtension)) return true
+    return false
   }
   get fileExtension() {
     const extname = this.urlFileExtension
+    if (this.isVideo) {
+      if (globals.SupportedVideoTypes?.includes(extname)) return extname
+      return 'mp4'
+    }
     if (globals.SupportedAudioTypes.includes(extname)) return extname
     if (globals.SupportedVideoTypes?.includes(extname)) return extname
-    return this.isVideo ? 'mp4' : 'mp3'
+    return 'mp3'
   }
   get enclosureType() {
     const enclosureType = this.rssPodcastEpisode?.enclosure?.type

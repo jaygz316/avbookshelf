@@ -138,7 +138,8 @@
 
 <script>
 import PlayerHandler from '@/players/PlayerHandler'
-import { mountVideoElement, updatePlayerHeightCss } from '@/video/videoMountManager'
+import { isVideoEpisode } from '@/video/videoUtils'
+import { updatePlayerHeightCss, mountVideoElement } from '@/video/videoMountManager'
 
 export default {
   data() {
@@ -302,7 +303,7 @@ export default {
       return this.streamLibraryItem?.mediaType === 'podcast'
     },
     isVideoEpisode() {
-      return this.streamEpisode?.episodeMediaType === 'video' || !!this.streamEpisode?.videoFile
+      return isVideoEpisode(this.streamEpisode)
     },
     isExplicit() {
       return !!this.mediaMetadata.explicit
@@ -846,7 +847,7 @@ export default {
 
       const episodes = libraryItem.media?.episodes || []
       const episode = episodes.find((ep) => ep.id === episodeId)
-      const isVideo = episode?.episodeMediaType === 'video' || !!episode?.videoFile
+      const isVideo = isVideoEpisode(episode)
 
       if (isVideo) {
         this.$store.commit('setVideoPlayerSize', 'expanded')

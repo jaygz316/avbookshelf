@@ -25,10 +25,10 @@ describe('MigrationManager', () => {
   beforeEach(() => {
     sequelizeStub = sinon.createStubInstance(Sequelize)
     umzugStub = {
-      migrations: sinon.stub(),
-      executed: sinon.stub(),
-      up: sinon.stub(),
-      down: sinon.stub()
+      migrations: sinon.stub().resolves([]),
+      executed: sinon.stub().resolves([]),
+      up: sinon.stub().resolves(),
+      down: sinon.stub().resolves()
     }
     sequelizeStub.getQueryInterface.returns({})
     migrationManager = new MigrationManager(sequelizeStub, false, configPath)
@@ -109,6 +109,25 @@ describe('MigrationManager', () => {
       expect(loggerInfoStub.calledWith(sinon.match('Migrations successfully applied'))).to.be.true
     })
 
+    it('should run unexecuted migrations even if serverVersion equals databaseVersion', async () => {
+      // Arrange
+      migrationManager.serverVersion = '1.2.0'
+      migrationManager.databaseVersion = '1.2.0'
+      migrationManager.maxVersion = '1.2.0'
+      migrationManager.initialized = true
+
+      umzugStub.migrations.resolves([{ name: 'v1.1.0-migration.js' }, { name: 'v1.2.0-migration-custom.js' }])
+      umzugStub.executed.resolves([{ name: 'v1.1.0-migration.js' }])
+
+      // Act
+      await migrationManager.runMigrations()
+
+      // Assert
+      expect(migrationManager.initUmzug.calledOnce).to.be.true
+      expect(umzugStub.up.calledOnce).to.be.true
+      expect(umzugStub.up.calledWith({ migrations: ['v1.2.0-migration-custom.js'], rerun: 'ALLOW' })).to.be.true
+    })
+
     it('should run down migrations successfully', async () => {
       // Arrange
       migrationManager.databaseVersion = '1.2.0'
@@ -148,12 +167,14 @@ describe('MigrationManager', () => {
       expect(umzugStub.down.called).to.be.false
     })
 
-    it('should log that no migrations are needed if serverVersion equals databaseVersion', async () => {
+    it('should log that no migrations are needed if serverVersion equals databaseVersion and no pending migrations exist', async () => {
       // Arrange
       migrationManager.serverVersion = '1.2.0'
       migrationManager.databaseVersion = '1.2.0'
       migrationManager.maxVersion = '1.2.0'
       migrationManager.initialized = true
+      umzugStub.migrations.resolves([{ name: 'v1.2.0-migration.js' }])
+      umzugStub.executed.resolves([{ name: 'v1.2.0-migration.js' }])
 
       // Act
       await migrationManager.runMigrations()

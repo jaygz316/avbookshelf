@@ -129,6 +129,23 @@ class PodcastManager {
     let success = false
     const isYtDlp = this.currentDownload.rssPodcastEpisode?.isYtDlp || this.currentDownload.libraryItem?.media?.feedType === 'youtube' || this.currentDownload.libraryItem?.media?.feedType === 'ytdlp'
 
+    const onProgress = (progressInfo) => {
+      this.currentDownload.setProgress(progressInfo.percent, progressInfo.speed, progressInfo.eta)
+      if (progressInfo.percent != null && !isNaN(progressInfo.percent)) {
+        task.setProgress(Math.min(1, Math.max(0, progressInfo.percent / 100)))
+      }
+      SocketAuthority.emitter('episode_download_progress', {
+        id: this.currentDownload.id,
+        libraryItemId: this.currentDownload.libraryItemId,
+        libraryId: this.currentDownload.libraryId,
+        episodeDisplayTitle: this.currentDownload.rssPodcastEpisode?.title ?? null,
+        progress: progressInfo.percent,
+        progressSpeed: progressInfo.speed,
+        progressEta: progressInfo.eta
+      })
+    }
+    this.currentDownload.onProgress = onProgress
+
     if (isYtDlp) {
       const ytDlpManager = this.ytDlpManager || global.ytDlpManager
       if (!ytDlpManager?.isAvailable) {
@@ -138,18 +155,7 @@ class PodcastManager {
         const filename = sanitizeFilename(this.currentDownload.episodeTitle)
         const quality = this.currentDownload.rssPodcastEpisode?.quality || this.currentDownload.libraryItem?.media?.maxDownloadResolution || 'best_compatible'
         const downloadResult = await ytDlpManager
-          .downloadVideo(this.currentDownload.url, this.currentDownload.libraryItem.path, filename, quality, (progressInfo) => {
-            this.currentDownload.setProgress(progressInfo.percent, progressInfo.speed, progressInfo.eta)
-            SocketAuthority.emitter('episode_download_progress', {
-              id: this.currentDownload.id,
-              libraryItemId: this.currentDownload.libraryItemId,
-              libraryId: this.currentDownload.libraryId,
-              episodeDisplayTitle: this.currentDownload.rssPodcastEpisode?.title ?? null,
-              progress: progressInfo.percent,
-              progressSpeed: progressInfo.speed,
-              progressEta: progressInfo.eta
-            })
-          })
+          .downloadVideo(this.currentDownload.url, this.currentDownload.libraryItem.path, filename, quality, onProgress)
           .catch((error) => {
             Logger.error(`[PodcastManager] yt-dlp download failed for "${this.currentDownload.episodeTitle}":`, error)
             return null
@@ -190,7 +196,7 @@ class PodcastManager {
       if (!success && !ffmpegDownloadResponse?.isRequestError) {
         Logger.info(`[PodcastManager] Retrying episode download without tagging`)
         // Download episode only
-        success = await downloadFile(this.currentDownload.url, this.currentDownload.targetPath)
+        success = await downloadFile(this.currentDownload.url, this.currentDownload.targetPath, null, onProgress)
           .then(() => true)
           .catch((error) => {
             Logger.error(`[PodcastManager] Podcast Episode download failed`, error)
@@ -249,12 +255,20 @@ class PodcastManager {
     const libraryFile = new LibraryFile()
     await libraryFile.setDataFromPath(this.currentDownload.targetPath, this.currentDownload.targetRelPath)
 
-    const isVideo = this.currentDownload.isVideo
+    const ext = libraryFile.metadata.ext?.slice(1).toLowerCase() || ''
+    let isVideo = this.currentDownload.isVideo || globals.SupportedVideoTypes.includes(ext)
     let mediaFile
     if (isVideo) {
       mediaFile = await this.probeVideoFile(libraryFile)
     } else {
       mediaFile = await this.probeAudioFile(libraryFile)
+      if (mediaFile && (mediaFile.videoStream || (mediaFile.codec && globals.SupportedVideoTypes.includes(ext)))) {
+        const videoMediaFile = await this.probeVideoFile(libraryFile)
+        if (videoMediaFile) {
+          mediaFile = videoMediaFile
+          isVideo = true
+        }
+      }
     }
     if (!mediaFile) {
       return false
@@ -279,6 +293,8 @@ class PodcastManager {
         podcastEpisode.episodeMediaType = 'video'
         podcastEpisode.changed('videoFile', true)
         podcastEpisode.changed('episodeMediaType', true)
+        podcastEpisode.audioFile = null
+        podcastEpisode.changed('audioFile', true)
       } else {
         podcastEpisode.audioFile = mediaFile.toJSON()
         if (!podcastEpisode.videoFile) {
@@ -291,9 +307,66 @@ class PodcastManager {
         podcastEpisode.enclosureURL = this.currentDownload.rssPodcastEpisode.enclosure.url
         podcastEpisode.changed('enclosureURL', true)
       }
+      if (this.currentDownload.rssPodcastEpisode?.publishedAt && !podcastEpisode.publishedAt) {
+        podcastEpisode.publishedAt = this.currentDownload.rssPodcastEpisode.publishedAt
+        podcastEpisode.changed('publishedAt', true)
+      } else if (mediaFile.infoJson?.publishedAt && !podcastEpisode.publishedAt) {
+        podcastEpisode.publishedAt = mediaFile.infoJson.publishedAt
+        podcastEpisode.changed('publishedAt', true)
+      }
+      if (this.currentDownload.rssPodcastEpisode?.pubDate && !podcastEpisode.pubDate) {
+        podcastEpisode.pubDate = this.currentDownload.rssPodcastEpisode.pubDate
+        podcastEpisode.changed('pubDate', true)
+      } else if (mediaFile.infoJson?.pubDate && !podcastEpisode.pubDate) {
+        podcastEpisode.pubDate = mediaFile.infoJson.pubDate
+        podcastEpisode.changed('pubDate', true)
+      }
+      if (this.currentDownload.rssPodcastEpisode?.description && !podcastEpisode.description) {
+        podcastEpisode.description = this.currentDownload.rssPodcastEpisode.description
+        podcastEpisode.changed('description', true)
+      } else if (mediaFile.infoJson?.description && !podcastEpisode.description) {
+        podcastEpisode.description = mediaFile.infoJson.description
+        podcastEpisode.changed('description', true)
+      }
+      if (this.currentDownload.rssPodcastEpisode?.subtitle && !podcastEpisode.subtitle) {
+        podcastEpisode.subtitle = this.currentDownload.rssPodcastEpisode.subtitle
+        podcastEpisode.changed('subtitle', true)
+      } else if (mediaFile.infoJson?.subtitle && !podcastEpisode.subtitle) {
+        podcastEpisode.subtitle = mediaFile.infoJson.subtitle
+        podcastEpisode.changed('subtitle', true)
+      }
+      if (this.currentDownload.rssPodcastEpisode?.season && !podcastEpisode.season) {
+        podcastEpisode.season = this.currentDownload.rssPodcastEpisode.season
+        podcastEpisode.changed('season', true)
+      } else if (mediaFile.infoJson?.season && !podcastEpisode.season) {
+        podcastEpisode.season = mediaFile.infoJson.season
+        podcastEpisode.changed('season', true)
+      }
+      if (this.currentDownload.rssPodcastEpisode?.episode && !podcastEpisode.episode) {
+        podcastEpisode.episode = this.currentDownload.rssPodcastEpisode.episode
+        podcastEpisode.changed('episode', true)
+      } else if (mediaFile.infoJson?.episode && !podcastEpisode.episode) {
+        podcastEpisode.episode = mediaFile.infoJson.episode
+        podcastEpisode.changed('episode', true)
+      }
+      if (this.currentDownload.rssPodcastEpisode?.thumbnail && !podcastEpisode.thumbnail) {
+        podcastEpisode.thumbnail = this.currentDownload.rssPodcastEpisode.thumbnail
+        podcastEpisode.changed('thumbnail', true)
+      }
       if (this.currentDownload.rssPodcastEpisode?.chapters?.length && !podcastEpisode.chapters?.length) {
         podcastEpisode.chapters = this.currentDownload.rssPodcastEpisode.chapters
         podcastEpisode.changed('chapters', true)
+      } else if (mediaFile.infoJson?.chapters?.length && !podcastEpisode.chapters?.length) {
+        podcastEpisode.chapters = mediaFile.infoJson.chapters
+        podcastEpisode.changed('chapters', true)
+      }
+      if (this.currentDownload.rssPodcastEpisode?.extraData) {
+        podcastEpisode.extraData = { ...(this.currentDownload.rssPodcastEpisode.extraData || {}), ...(podcastEpisode.extraData || {}) }
+        podcastEpisode.changed('extraData', true)
+      }
+      if (mediaFile.infoJson?.extraData) {
+        podcastEpisode.extraData = { ...(mediaFile.infoJson.extraData || {}), ...(podcastEpisode.extraData || {}) }
+        podcastEpisode.changed('extraData', true)
       }
       if (this.currentDownload.rssPodcastEpisode?.guid && !podcastEpisode.extraData?.guid) {
         podcastEpisode.extraData = { ...(podcastEpisode.extraData || {}), guid: this.currentDownload.rssPodcastEpisode.guid }

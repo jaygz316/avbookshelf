@@ -33,7 +33,7 @@
               <div class="flex items-center mb-1">
                 <div class="break-words">{{ episode.title }}</div>
                 <widgets-podcast-type-indicator :type="episode.episodeType" />
-                <ui-tooltip v-if="episode.isVideo || episode.episodeMediaType === 'video' || (episode.enclosure?.type && episode.enclosure.type.startsWith('video'))" text="Video" direction="top">
+                <ui-tooltip v-if="isVideoEpisode(episode) || (episode.enclosure?.type && episode.enclosure.type.startsWith('video'))" text="Video" direction="top">
                   <span class="material-symbols text-yellow-400 text-base ml-1.5">videocam</span>
                 </ui-tooltip>
               </div>
@@ -59,6 +59,8 @@
 </template>
 
 <script>
+import { isVideoEpisode } from '@/video/videoUtils'
+
 export default {
   props: {
     value: Boolean,
@@ -328,6 +330,9 @@ export default {
           isDownloaded: this.getIsEpisodeDownloaded(ep)
         }
       })
+    },
+    isVideoEpisode(episode) {
+      return isVideoEpisode(episode)
     }
   },
   mounted() {}

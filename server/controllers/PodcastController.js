@@ -8,6 +8,8 @@ const fs = require('../libs/fsExtra')
 const cron = require('../libs/nodeCron')
 
 const { getPodcastFeed, findMatchingEpisodes, matchYouTubeEpisodesWithItunesFeed } = require('../utils/podcastUtils')
+const { extractEpisodeNumbers } = require('../video/VideoEpisodeMatcher')
+const { parseDateToTimestampAndString, parseInfoJsonMetadata } = require('../utils/parsers/parseInfoJsonMetadata')
 const { getFileTimestampsWithIno, filePathToPOSIX, isSameOrSubPath } = require('../utils/fileUtils')
 const { validateUrl } = require('../utils/index')
 const htmlSanitizer = require('../utils/htmlSanitizer')
@@ -519,26 +521,64 @@ class PodcastController {
       return res.status(400).json({ error: 'Failed to get video info from URL' })
     }
 
+    const rawDate = videoInfo.release_date || videoInfo.upload_date || videoInfo.modified_date || videoInfo.datetime || videoInfo.date
+    const rawTimestamp = videoInfo.release_timestamp || videoInfo.timestamp || videoInfo.epoch
+    const { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
+    const extracted = extractEpisodeNumbers(videoInfo.title || '')
+    const season = videoInfo.season_number != null ? String(videoInfo.season_number) : (extracted.season || '')
+    const episodeNum = videoInfo.episode_number != null ? String(videoInfo.episode_number) : (extracted.episode || '')
+    const author = videoInfo.uploader || videoInfo.channel || videoInfo.artist || videoInfo.creator || ''
+
+    let chapters = []
+    if (Array.isArray(videoInfo.chapters) && videoInfo.chapters.length) {
+      chapters = videoInfo.chapters.map((ch, idx) => ({
+        id: idx,
+        start: typeof ch.start_time === 'number' ? ch.start_time : 0,
+        end: typeof ch.end_time === 'number' ? ch.end_time : 0,
+        title: ch.title || `Chapter ${idx + 1}`
+      }))
+    }
+
+    const tags = Array.isArray(videoInfo.tags) ? videoInfo.tags.filter((t) => typeof t === 'string' && t.trim()) : []
+    const categories = Array.isArray(videoInfo.categories) ? videoInfo.categories.filter((c) => typeof c === 'string' && c.trim()) : []
+    const thumbnail = (videoInfo.thumbnails?.length ? videoInfo.thumbnails[videoInfo.thumbnails.length - 1].url : null) || videoInfo.thumbnail || null
+    const duration = videoInfo.duration != null && !isNaN(Number(videoInfo.duration)) ? Number(videoInfo.duration) : null
+
     const episode = {
-      title: videoInfo.title,
-      subtitle: '',
+      title: videoInfo.title || 'Untitled',
+      subtitle: author,
       description: videoInfo.description || '',
       descriptionPlain: videoInfo.description || '',
-      pubDate: videoInfo.upload_date || '',
-      episodeType: 'full',
-      season: '',
-      episode: '',
-      author: videoInfo.uploader || videoInfo.channel || '',
-      duration: videoInfo.duration ? String(videoInfo.duration) : '',
-      durationSeconds: videoInfo.duration ? Number(videoInfo.duration) : null,
+      pubDate,
+      episodeType: videoInfo.episode_type || 'full',
+      season,
+      episode: episodeNum,
+      author,
+      duration: duration ? String(duration) : '',
+      durationSeconds: duration,
       explicit: '',
       enclosure: { url, type: 'video/mp4' },
-      publishedAt: videoInfo.timestamp ? videoInfo.timestamp * 1000 : (ytDlpManager.parseUploadDate(videoInfo.upload_date) || Date.now()),
+      publishedAt,
       guid: videoInfo.id || url,
       isVideo: true,
       isYtDlp: true,
       quality: quality || req.libraryItem?.media?.maxDownloadResolution || 'best_compatible',
-      thumbnail: videoInfo.thumbnail || null
+      thumbnail,
+      chapters,
+      extraData: {
+        guid: videoInfo.id || url,
+        webpageUrl: videoInfo.webpage_url || url,
+        uploader: videoInfo.uploader || '',
+        uploaderId: videoInfo.uploader_id || '',
+        uploaderUrl: videoInfo.uploader_url || '',
+        channel: videoInfo.channel || '',
+        channelId: videoInfo.channel_id || '',
+        channelUrl: videoInfo.channel_url || '',
+        viewCount: videoInfo.view_count != null ? Number(videoInfo.view_count) : null,
+        likeCount: videoInfo.like_count != null ? Number(videoInfo.like_count) : null,
+        tags,
+        categories
+      }
     }
 
     const podcastManager = this.podcastManager || req.podcastManager

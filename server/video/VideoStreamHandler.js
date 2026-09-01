@@ -54,15 +54,9 @@ class VideoStreamHandler {
       }
     }
 
-    // Only re-encode audio if source is not already AAC
-    const videoTrackAudioCodec = videoTrack?.audioCodec || tracks[0]?.audioCodec
-    if (videoTrackAudioCodec === 'aac') {
-      Logger.debug('[VideoStreamHandler] Source audio is AAC - using copy')
-      codecOptions.push('-c:a copy')
-    } else {
-      Logger.debug(`[VideoStreamHandler] Source audio codec "${videoTrackAudioCodec}" - transcoding to AAC`)
-      codecOptions.push('-c:a aac', '-b:a 192k')
-    }
+    // Always encode audio to clean AAC with 2 channels for HLS segments to prevent packet corruption and desync
+    Logger.debug('[VideoStreamHandler] Encoding audio track to AAC (192k stereo)')
+    codecOptions.push('-c:a aac', '-b:a 192k', '-ac 2')
   }
 
   /**

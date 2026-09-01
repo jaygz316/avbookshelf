@@ -67,6 +67,8 @@
 </template>
 
 <script>
+import { isVideoEpisode } from '@/video/videoUtils'
+
 export default {
   props: {
     index: Number,
@@ -103,7 +105,7 @@ export default {
       return this.episode?.id || ''
     },
     isVideo() {
-      return this.episode?.episodeMediaType === 'video' || !!this.episode?.videoFile
+      return isVideoEpisode(this.episode)
     },
     filename() {
       return this.episode?.videoFile?.metadata?.filename || this.episode?.audioFile?.metadata?.filename || ''

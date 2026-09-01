@@ -45,7 +45,7 @@ class MediaProbeData {
   setData(data) {
     const videoStream = data.video_stream
     if (videoStream) {
-      const isCoverArt = videoStream.codec === 'mjpeg' || videoStream.codec === 'png' || (data.audio_stream && !videoStream.frame_rate)
+      const isCoverArt = Boolean(videoStream.attached_pic || (!videoStream.frame_rate && (videoStream.codec === 'mjpeg' || videoStream.codec === 'png' || videoStream.codec === 'bmp' || videoStream.codec === 'webp')))
       this.embeddedCoverArt = isCoverArt ? videoStream.codec : null
       this.videoStream = isCoverArt ? null : videoStream
     } else {
@@ -69,7 +69,7 @@ class MediaProbeData {
     this.chapters = data.chapters || []
 
     this.audioMetaTags = new AudioMetaTags()
-    this.audioMetaTags.setData(data.tags)
+    this.audioMetaTags.setData(data.tags || {})
   }
 }
 module.exports = MediaProbeData

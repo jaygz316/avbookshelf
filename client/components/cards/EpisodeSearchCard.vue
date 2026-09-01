@@ -12,6 +12,8 @@
 </template>
 
 <script>
+import { isVideoEpisode } from '@/video/videoUtils'
+
 export default {
   props: {
     libraryItem: {
@@ -41,7 +43,7 @@ export default {
       return this.media.metadata || {}
     },
     isVideo() {
-      return this.episode?.episodeMediaType === 'video' || !!this.episode?.videoFile || this.episode?.isVideo
+      return isVideoEpisode(this.episode)
     },
     episodeTitle() {
       return this.episode.title || 'No Title'

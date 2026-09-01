@@ -91,7 +91,7 @@ class LibraryItemScanData {
   /** @type {LibraryFileModifiedObject[]} */
   get audioLibraryFilesModified() {
     return this.libraryFilesModified.filter((lf) => {
-      const ext = lf.old.metadata.ext?.slice(1).toLowerCase() || ''
+      const ext = (lf.new?.metadata?.ext || lf.old?.metadata?.ext)?.slice(1).toLowerCase() || ''
       if (this.mediaType === 'podcast' && globals.SupportedVideoTypes.includes(ext)) return false
       return globals.SupportedAudioTypes.includes(ext)
     })
@@ -127,7 +127,7 @@ class LibraryItemScanData {
   /** @type {LibraryFileModifiedObject[]} */
   get videoLibraryFilesModified() {
     return this.libraryFilesModified.filter((lf) => {
-      const ext = lf.old.metadata.ext?.slice(1).toLowerCase() || ''
+      const ext = (lf.new?.metadata?.ext || lf.old?.metadata?.ext)?.slice(1).toLowerCase() || ''
       return globals.SupportedVideoTypes.includes(ext)
     })
   }
@@ -393,6 +393,12 @@ class LibraryItemScanData {
       }
     }
 
+    if (existingLibraryFile.fileType !== scannedLibraryFile.fileType) {
+      libraryScan.addLog(LogLevel.DEBUG, `Library file "${existingLibraryFile.metadata?.relPath}" for library item "${libraryItemPath}" fileType changed from "${existingLibraryFile.fileType}" to "${scannedLibraryFile.fileType}"`)
+      existingLibraryFile.fileType = scannedLibraryFile.fileType
+      hasChanges = true
+    }
+
     if (hasChanges) {
       existingLibraryFile.updatedAt = Date.now()
     }
@@ -422,7 +428,7 @@ class LibraryItemScanData {
    * @returns {boolean} true if media file was removed
    */
   checkMediaFileRemoved(existingMediaFile) {
-    if (!existingMediaFile) return true
+    if (!existingMediaFile) return false
     if (!this.mediaLibraryFilesRemoved.length) return false
     // First check exact path
     if (this.mediaLibraryFilesRemoved.some(mf => mf.metadata.path === existingMediaFile.metadata.path)) {

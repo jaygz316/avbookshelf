@@ -5,7 +5,7 @@
 
 export function isVideoEpisode(episode) {
   if (!episode) return false
-  return episode.episodeMediaType === 'video' || !!episode.videoFile || !!episode.isVideo
+  return episode.episodeMediaType === 'video' || !!episode.videoFile || !!episode.isVideo || !!episode.videoTrack
 }
 
 export const VIDEO_RESOLUTION_OPTIONS = [
