@@ -13,8 +13,6 @@ const { extractEpisodeNumbers } = require('./VideoEpisodeMatcher')
 const { parseInfoJsonMetadata, parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
 
 class VideoScanner {
-  constructor() {}
-
   /**
    * Find companion .info.json or .json file for a given video file path
    * @param {string} videoFilePath

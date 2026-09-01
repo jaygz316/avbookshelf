@@ -4,8 +4,8 @@ const axios = require('axios')
 const Logger = require('../Logger')
 const which = require('../utils/which')
 const { extractEpisodeNumbers } = require('./VideoEpisodeMatcher')
-const { VideoMimeType } = require('../utils/constants')
 const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
+const { mapPlaylistEntryToEpisode } = require('./ytDlpMetadataMapper')
 const { xmlToJSON } = require('../utils')
 
 class VideoManager {
@@ -89,17 +89,6 @@ class VideoManager {
     } finally {
       try { require('fs').unlinkSync(tmpFile) } catch { /* ignore */ }
     }
-  }
-
-  /**
-   * Parse upload date string or number to timestamp in milliseconds
-   * @param {string|number} uploadDate
-   * @param {string|number} [timestamp]
-   * @returns {number|null}
-   */
-  parseUploadDate(uploadDate, timestamp = null) {
-    const { publishedAt } = parseDateToTimestampAndString(uploadDate, timestamp)
-    return publishedAt
   }
 
   /**
@@ -195,7 +184,6 @@ class VideoManager {
     // Apply configured download speed limit to avoid IP bans
     const speedLimit = global.ServerSettings?.ytdlpDownloadSpeedLimit
     if (speedLimit && typeof speedLimit === 'string' && /^\d+(\.\d+)?[KMGkmg]?$/i.test(speedLimit)) {
-      // Insert before url arg: args = [...optionArgs, url] so splice at args.length-1
       args.splice(args.length - 1, 0, '--limit-rate', speedLimit)
     }
 
@@ -432,11 +420,6 @@ class VideoManager {
     })
   }
 
-  /**
-   * Get channel/playlist entries as pseudo-RSS episodes
-   * @param {string} url
-   * @param {number|null} [limit=null]
-   * @returns {Promise<{metadata: Object, episodes: Array}>}
   /**
    * Helper to normalize various YouTube URLs (shows, watch with playlist, channel subpaths)
    * @param {string} url
@@ -901,111 +884,11 @@ class VideoManager {
     const playlistId = firstEntry.playlist_id && !firstEntry.playlist_id.startsWith('UC') ? firstEntry.playlist_id : null
     const dateMap = await this.fetchYouTubeFeedDates(channelId, playlistId).catch(() => ({}))
 
-    const episodes = entries.map((entry, index) => {
-      const videoUrl = entry.url || (entry.id ? `https://www.youtube.com/watch?v=${entry.id}` : url)
-      const rawDate =
-        entry.release_date ||
-        entry.upload_date ||
-        entry.published_at ||
-        entry.publish_date ||
-        entry.published_time ||
-        entry.publish_time ||
-        entry.pubDate ||
-        entry.pubdate ||
-        entry.publication_date ||
-        entry.modified_date ||
-        entry.datetime ||
-        entry.date ||
-        entry.release_year ||
-        entry.year
-      const rawTimestamp =
-        entry.release_timestamp ||
-        entry.timestamp ||
-        entry.published_timestamp ||
-        entry.modified_timestamp ||
-        entry.start_time
-      let { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
-
-      // If date is mapped from official YouTube Atom feed
-      if (entry.id && dateMap[entry.id]) {
-        publishedAt = publishedAt || dateMap[entry.id].publishedAt
-        pubDate = pubDate || dateMap[entry.id].pubDate
-      }
-
-      // If date is still missing, attempt to extract a strict date from entry title
-      if (!publishedAt || !pubDate) {
-        const parsedFallback = parseDateToTimestampAndString(entry.title || '')
-        if (parsedFallback.publishedAt) {
-          publishedAt = publishedAt || parsedFallback.publishedAt
-          pubDate = pubDate || parsedFallback.pubDate
-        }
-      }
-      const thumbnail = entry.thumbnails?.length
-        ? entry.thumbnails[entry.thumbnails.length - 1].url
-        : (entry.thumbnail || null)
-      const season = entry.season_number != null ? String(entry.season_number) : null
-      // Use playlist_index as fallback episode number when no structured episode data is present
-      const episodeFromPlaylist = (!season && entry.season_number == null && entry.episode_number == null && entry.playlist_index != null)
-        ? String(entry.playlist_index)
-        : null
-      const episode = entry.episode_number != null ? String(entry.episode_number) : null
-      const extracted = (!season && !episode) ? extractEpisodeNumbers(entry.title || '') : {}
-
-      let chapters = []
-      if (Array.isArray(entry.chapters) && entry.chapters.length) {
-        chapters = entry.chapters.map((ch, idx) => ({
-          id: idx,
-          start: typeof ch.start_time === 'number' ? ch.start_time : 0,
-          end: typeof ch.end_time === 'number' ? ch.end_time : 0,
-          title: ch.title || `Chapter ${idx + 1}`
-        }))
-      }
-
-      const tags = Array.isArray(entry.tags) ? entry.tags.filter((t) => typeof t === 'string' && t.trim()) : []
-      const categories = Array.isArray(entry.categories) ? entry.categories.filter((c) => typeof c === 'string' && c.trim()) : []
-      const author = entry.uploader || entry.channel || metadata.author || ''
-
-      return {
-        title: entry.title || 'Untitled',
-        subtitle: author,
-        description: entry.description || '',
-        descriptionPlain: entry.description || '',
-        pubDate,
-        episodeType: 'full',
-        season: season || extracted.season || '',
-        episode: episode || extracted.episode || episodeFromPlaylist || String(index + 1),
-        author,
-        duration: entry.duration ? String(entry.duration) : '',
-        durationSeconds: entry.duration ? Number(entry.duration) : null,
-        explicit: '',
-        publishedAt,
-        enclosure: {
-          url: videoUrl,
-          type: entry.ext ? (VideoMimeType[entry.ext.toUpperCase()] || 'video/mp4') : 'video/mp4'
-        },
-        guid: entry.id || videoUrl,
-        isVideo: true,
-        isYtDlp: true,
-        thumbnail,
-        chaptersUrl: null,
-        chaptersType: null,
-        chapters,
-        extraData: {
-          guid: entry.id || videoUrl,
-          webpageUrl: entry.webpage_url || videoUrl,
-          uploader: entry.uploader || '',
-          uploaderId: entry.uploader_id || '',
-          uploaderUrl: entry.uploader_url || '',
-          channel: entry.channel || '',
-          channelId: entry.channel_id || '',
-          channelUrl: entry.channel_url || '',
-          viewCount: entry.view_count != null ? Number(entry.view_count) : null,
-          likeCount: entry.like_count != null ? Number(entry.like_count) : null,
-          tags,
-          categories
-        }
-      }
-    })
+    const episodes = entries.map((entry, index) => mapPlaylistEntryToEpisode(entry, index, {
+      url,
+      author: metadata.author,
+      dateMap
+    }))
 
     // Fetch accurate dates for episodes still missing publishedAt via per-video yt-dlp lookups.
     // The Atom RSS feed only covers the last 15 videos, and --flat-playlist dates are unreliable,

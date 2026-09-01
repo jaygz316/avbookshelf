@@ -85,8 +85,6 @@ export default class PlayerHandler {
 
   switchPlayer(playWhenReady) {
     if (this.isCasting && !(this.player instanceof CastPlayer)) {
-      console.log('[PlayerHandler] Switching to cast player')
-
       this.stopPlayInterval()
       this.playerStateChange('LOADING')
 
@@ -105,8 +103,6 @@ export default class PlayerHandler {
     } else if (!this.isCasting) {
       const PlayerClass = this.isVideo ? LocalVideoPlayer : LocalAudioPlayer
       if (!(this.player instanceof PlayerClass)) {
-        console.log(`[PlayerHandler] Switching to local ${this.isVideo ? 'video' : 'audio'} player`)
-
         this.stopPlayInterval()
         this.playerStateChange('LOADING')
 
@@ -139,7 +135,6 @@ export default class PlayerHandler {
   playerError() {
     // Switch to HLS stream on error
     if (!this.isCasting && (this.player instanceof LocalAudioPlayer || this.player instanceof LocalVideoPlayer)) {
-      console.log(`[PlayerHandler] Player error switching to HLS stream`)
       this.prepare(true)
     }
   }
@@ -150,14 +145,12 @@ export default class PlayerHandler {
     var currentTime = this.player.getCurrentTime()
     this.ctx.setCurrentTime(currentTime)
 
-    // TODO: Add listening time between last sync and now?
     this.sendProgressSync(currentTime)
 
     this.ctx.mediaFinished(this.libraryItemId, this.episodeId)
   }
 
   playerStateChange(state) {
-    console.log('[PlayerHandler] Player state change', state)
     this.playerState = state
 
     if (this.playerState === 'PLAYING') {
@@ -208,7 +201,7 @@ export default class PlayerHandler {
       supportedMimeTypes: this.player ? this.player.playableMimeTypes : [],
       mediaPlayer: this.isCasting ? 'chromecast' : 'html5',
       forceTranscode,
-      forceDirectPlay: this.isCasting // TODO: add transcode support for chromecast
+      forceDirectPlay: this.isCasting
     }
 
     const path = this.episodeId ? `/api/items/${this.libraryItem.id}/play/${this.episodeId}` : `/api/items/${this.libraryItem.id}/play`
@@ -245,8 +238,6 @@ export default class PlayerHandler {
     this.displayTitle = session.displayTitle
     this.displayAuthor = session.displayAuthor
 
-    console.log('[PlayerHandler] Preparing Session', session)
-
     const rawTracks = session.videoTracks?.length ? session.videoTracks : session.audioTracks || []
     var tracks = rawTracks.map((at) => new AudioTrack(at, session.id, this.ctx.$config.routerBasePath))
 
@@ -263,7 +254,6 @@ export default class PlayerHandler {
   }
 
   closePlayer() {
-    console.log('[PlayerHandler] Close Player')
     this.sendCloseSession()
     this.resetPlayer()
   }

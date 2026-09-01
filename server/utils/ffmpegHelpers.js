@@ -529,8 +529,6 @@ async function mergeAudioFiles(audioTracks, duration, itemCachePath, outputFileP
   const audioCodec = encodingOptions.codec || 'aac'
   const audioChannels = encodingOptions.channels || 2
 
-  // TODO: Updated in 2.2.11 to always encode even if merging multiple m4b. This is because just using the file extension as was being done before is not enough. This can be an option or do more to check if a concat is possible.
-  // const audioRequiresEncode = audioTracks[0].metadata.ext !== '.m4b'
   const audioRequiresEncode = true
 
   const firstTrackIsM4b = audioTracks[0].metadata.ext.toLowerCase() === '.m4b'

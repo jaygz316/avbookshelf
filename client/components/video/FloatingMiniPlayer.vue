@@ -5,20 +5,16 @@
       id="floating-mini-player"
       class="fixed bottom-24 right-4 sm:bottom-28 sm:right-6 w-72 sm:w-96 aspect-video z-50 rounded-xl shadow-2xl border border-gray-700 bg-black overflow-hidden group select-none transition-all duration-300"
     >
-      <!-- Video Container: DOM element is mounted here -->
-      <div id="floating-mini-video-container" ref="miniVideoContainer" class="w-full h-full relative flex items-center justify-center bg-black">
-        <!-- Center Loading Spinner -->
-        <div v-if="loading" class="absolute inset-0 flex items-center justify-center bg-black/60 z-10 pointer-events-none">
+            <div id="floating-mini-video-container" ref="miniVideoContainer" class="w-full h-full relative flex items-center justify-center bg-black">
+                <div v-if="loading" class="absolute inset-0 flex items-center justify-center bg-black/60 z-10 pointer-events-none">
           <svg class="animate-spin h-8 w-8 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
         </div>
 
-        <!-- Hover Overlay: Controls & Metadata -->
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col justify-between p-2.5 z-20">
-          <!-- Top Bar: Title & Action Buttons -->
-          <div class="flex items-center justify-between gap-2">
+                <div class="absolute inset-0 bg-black/60 backdrop-blur-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col justify-between p-2.5 z-20">
+                    <div class="flex items-center justify-between gap-2">
             <div class="min-w-0">
               <p class="text-white text-xs font-semibold truncate drop-shadow-sm">
                 {{ title || 'No Title' }}
@@ -28,8 +24,7 @@
               </p>
             </div>
             <div class="flex items-center gap-1 shrink-0">
-              <!-- Expand / Return to Main Player -->
-              <ui-tooltip direction="bottom" text="Expand to Player">
+                            <ui-tooltip direction="bottom" text="Expand to Player">
                 <button
                   aria-label="Expand to Player"
                   class="p-1 rounded bg-white/20 hover:bg-white/30 text-white transition active:scale-95 flex items-center justify-center"
@@ -39,8 +34,7 @@
                 </button>
               </ui-tooltip>
 
-              <!-- Close Mini Player -->
-              <ui-tooltip direction="bottom" text="Close Mini Player">
+                            <ui-tooltip direction="bottom" text="Close Mini Player">
                 <button
                   aria-label="Close Mini Player"
                   class="p-1 rounded bg-white/20 hover:bg-white/30 text-white transition active:scale-95 flex items-center justify-center"
@@ -52,8 +46,7 @@
             </div>
           </div>
 
-          <!-- Center Controls: Jump Back, Play/Pause, Jump Forward -->
-          <div class="flex items-center justify-center gap-3">
+                    <div class="flex items-center justify-center gap-3">
             <button
               aria-label="Jump Backward"
               class="p-1.5 rounded-full bg-white/20 hover:bg-white/30 text-white transition active:scale-95 flex items-center justify-center"
@@ -79,8 +72,7 @@
             </button>
           </div>
 
-          <!-- Bottom: Timestamp and Progress Track -->
-          <div class="w-full">
+                    <div class="w-full">
             <div class="flex items-center justify-between text-xxs font-mono text-gray-300 mb-1 px-0.5">
               <span>{{ currentTimestamp }}</span>
               <span>{{ durationTimestamp }}</span>

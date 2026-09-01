@@ -310,7 +310,6 @@ class Stream extends EventEmitter {
     if (this.hlsSegmentType === 'fmp4') {
       this.ffmpeg.addOption('-strict -2')
       var fmp4InitFilename = Path.join(this.streamPath, 'init.mp4')
-      // var fmp4InitFilename = 'init.mp4'
       this.ffmpeg.addOption('-hls_fmp4_init_filename', fmp4InitFilename)
     }
     var segmentFilename = Path.join(this.streamPath, this.segmentBasename)

@@ -174,12 +174,10 @@ class FeedEpisode extends Model {
    * @param {string} [existingEpisodeId]
    */
   static getFeedEpisodeObjFromAudiobookTrack(book, pubDateStart, feed, slug, audioTrack, useChapterTitles, offsetIndex, existingEpisodeId = null) {
-    // Example: <pubDate>Fri, 04 Feb 2015 00:00:00 GMT</pubDate>
     // Offset pubdate in 1 minute intervals to ensure correct order
     const timeOffset = offsetIndex * 60000
     const episodeId = existingEpisodeId || uuidv4()
 
-    // e.g. Track 1 will have a pub date before Track 2
     const audiobookPubDate = date.format(new Date(pubDateStart.valueOf() + timeOffset), 'ddd, DD MMM YYYY HH:mm:ss [GMT]')
 
     const contentUrl = `/feed/${slug}/item/${episodeId}/media${Path.extname(audioTrack.metadata.filename)}`
@@ -250,7 +248,6 @@ class FeedEpisode extends Model {
    * @returns {Promise<FeedEpisode[]>}
    */
   static async createFromBooks(books, feed, slug, transaction) {
-    // This is never null unless the books array is empty, as this method is not invoked when no books. Reduce needs an initial item
     const earliestLibraryItemCreatedAt =
       books.length > 0
         ? books.reduce((earliest, book) => {

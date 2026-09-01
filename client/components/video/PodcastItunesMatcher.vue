@@ -11,8 +11,7 @@
         </span>
       </div>
 
-      <!-- Unlinked: Search Apple Podcasts -->
-      <div v-if="!selectedItunesPodcast">
+            <div v-if="!selectedItunesPodcast">
         <p class="text-xs text-gray-300 mb-2 leading-relaxed">{{ $strings.MessageSearchApplePodcastsHelp || 'Link this YouTube channel with a podcast on Apple Podcasts to sync episode numbers, season numbers, accurate publication dates, and canonical metadata.' }}</p>
         <form @submit.prevent="searchItunes" class="flex gap-2 mb-2">
           <ui-text-input v-model="itunesSearchQuery" :placeholder="$strings.ButtonSearchApplePodcasts || 'Search Apple Podcasts...'" class="grow text-xs md:text-sm" />
@@ -43,8 +42,7 @@
         <p v-else-if="hasSearchedItunes && !itunesSearchResults.length" class="text-xs text-gray-400 text-center py-2">{{ $strings.MessageNoResults || 'No matching Apple Podcasts found' }}</p>
       </div>
 
-      <!-- Linked Apple Podcast Card -->
-      <div v-else class="space-y-3">
+            <div v-else class="space-y-3">
         <div class="flex items-center justify-between p-2.5 rounded bg-black/50 border border-success/40">
           <div class="flex items-center gap-3 min-w-0 pr-2">
             <img v-if="selectedItunesPodcast.cover" :src="selectedItunesPodcast.cover" class="w-12 h-12 object-cover rounded shadow" />

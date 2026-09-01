@@ -2,8 +2,6 @@ const { existsSync } = require('fs')
 const Logger = require('../Logger')
 
 class VideoStreamHandler {
-  constructor() {}
-
   /**
    * Detect available hardware encoder
    * @returns {'h264_vaapi'|'libx264'}
@@ -60,8 +58,6 @@ class VideoStreamHandler {
       }
     }
 
-    // Always encode audio to clean AAC with 2 channels for HLS segments to prevent packet corruption and desync
-    Logger.debug('[VideoStreamHandler] Encoding audio track to AAC (192k stereo)')
     codecOptions.push('-c:a aac', '-b:a 192k', '-ac 2')
   }
 

@@ -60,13 +60,10 @@ export default class LocalVideoPlayer extends EventEmitter {
       "video/x-matroska",
       "video/quicktime"
     ]
-    var mimeTypeCanPlayMap = {}
     mimeTypes.forEach((mt) => {
       var canPlay = this.player.canPlayType(mt)
-      mimeTypeCanPlayMap[mt] = canPlay
       if (canPlay) this.playableMimeTypes.push(mt)
     })
-    console.log("[LocalVideoPlayer] Supported mime types", mimeTypeCanPlayMap, this.playableMimeTypes)
   }
 
   evtPlay() {
@@ -81,12 +78,10 @@ export default class LocalVideoPlayer extends EventEmitter {
   }
   evtEnded() {
     if (this.currentTrackIndex < this.videoTracks.length - 1) {
-      console.log(`[LocalVideoPlayer] Track ended - loading next track ${this.currentTrackIndex + 1}`)
       this.currentTrackIndex++
       this.startTime = this.currentTrack.startOffset
       this.loadCurrentTrack()
     } else {
-      console.log("[LocalVideoPlayer] Ended")
       this.emit("finished")
     }
   }
@@ -112,11 +107,9 @@ export default class LocalVideoPlayer extends EventEmitter {
     }
   }
   evtEnterPiP() {
-    console.log("[LocalVideoPlayer] Entered Picture-in-Picture")
     this.emit("pipChange", true)
   }
   evtLeavePiP() {
-    console.log("[LocalVideoPlayer] Left Picture-in-Picture")
     this.emit("pipChange", false)
   }
 
@@ -175,7 +168,6 @@ export default class LocalVideoPlayer extends EventEmitter {
             maxRetryDelayMs: 8000,
             shouldRetry: (retryConfig, retryCount, isTimeout, httpStatus, retry) => {
               if (httpStatus?.code === 404 && retryConfig?.maxNumRetry > retryCount) {
-                console.log(`[HLS] Server 404 for fragment retry ${retryCount} of ${retryConfig.maxNumRetry}`)
                 return true
               }
               return retry
@@ -191,7 +183,6 @@ export default class LocalVideoPlayer extends EventEmitter {
       this.hlsInstance.loadSource(this.currentTrack.relativeContentUrl)
 
       this.hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-        console.log("[HLS] Manifest Parsed")
       })
 
       this.hlsInstance.on(Hls.Events.ERROR, (e, data) => {
@@ -223,7 +214,6 @@ export default class LocalVideoPlayer extends EventEmitter {
         }
       })
       this.hlsInstance.on(Hls.Events.DESTROYING, () => {
-        console.log("[HLS] Destroying HLS Instance")
       })
     })
   }
@@ -239,7 +229,6 @@ export default class LocalVideoPlayer extends EventEmitter {
     if (!this.currentTrack) return
     this.trackStartTime = Math.max(0, this.startTime - (this.currentTrack.startOffset || 0))
     this.player.src = this.currentTrack.relativeContentUrl
-    console.log(`[LocalVideoPlayer] Loading track src ${this.currentTrack.relativeContentUrl}`)
     this.player.load()
   }
 
@@ -297,11 +286,9 @@ export default class LocalVideoPlayer extends EventEmitter {
     this.playWhenReady = playWhenReady
 
     if (this.isHlsTranscode) {
-      // Seeking HLS stream
       var offsetTime = time - (this.currentTrack.startOffset || 0)
       this.player.currentTime = Math.max(0, offsetTime)
     } else {
-      // Seeking Direct play
       if (time < this.currentTrack.startOffset || time > this.currentTrack.startOffset + this.currentTrack.duration) {
         // Change Track
         var trackIndex = this.videoTracks.findIndex((t) => time >= t.startOffset && time < t.startOffset + t.duration)
@@ -326,7 +313,6 @@ export default class LocalVideoPlayer extends EventEmitter {
     this.player.volume = volume
   }
 
-  // Utils
   isValidDuration(duration) {
     if (duration && !isNaN(duration) && duration !== Number.POSITIVE_INFINITY && duration !== Number.NEGATIVE_INFINITY) {
       return true
@@ -371,7 +357,6 @@ export default class LocalVideoPlayer extends EventEmitter {
     return last.end
   }
 
-  // Picture-in-Picture
   get isPiPSupported() {
     return typeof document !== 'undefined' && !!document.pictureInPictureEnabled && !this.player?.disablePictureInPicture
   }
@@ -400,7 +385,6 @@ export default class LocalVideoPlayer extends EventEmitter {
     }
   }
 
-  // Video Fit Mode ('contain' | 'cover' | 'fill')
   setVideoFit(mode) {
     if (!this.player) return
     this.player.style.objectFit = mode || 'contain'

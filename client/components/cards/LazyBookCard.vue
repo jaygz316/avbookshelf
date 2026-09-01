@@ -665,8 +665,6 @@ export default {
     setEntity(_libraryItem) {
       var libraryItem = _libraryItem
 
-      // this code block is only necessary when showing a selected series with sequence #
-      //   it will update the selected series so we get realtime updates for series sequence changes
       if (this.series) {
         // i know.. but the libraryItem passed to this func cannot be modified so we need to create a copy
         libraryItem = {

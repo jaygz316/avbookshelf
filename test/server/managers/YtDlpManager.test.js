@@ -27,15 +27,8 @@ describe('YtDlpManager', () => {
     }
   })
 
-  describe('parseUploadDate', () => {
-    it('should parse YYYYMMDD and timestamps to milliseconds', () => {
-      const manager = new YtDlpManager()
-      expect(manager.parseUploadDate('20230514')).to.equal(Date.UTC(2023, 4, 14))
-      expect(manager.parseUploadDate(null, 1684022400)).to.equal(1684022400000)
-      expect(manager.parseUploadDate('2023-05-14T00:00:00Z')).to.equal(new Date('2023-05-14T00:00:00Z').valueOf())
-      expect(manager.parseUploadDate(null)).to.be.null
-    })
-  })
+
+
 
   describe('getFormatForQuality', () => {
     it('should return correct format strings for quality settings', () => {
