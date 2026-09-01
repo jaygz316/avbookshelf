@@ -502,88 +502,93 @@ class PodcastController {
       return res.sendStatus(403)
     }
 
-    const { url, quality } = req.body
+    const { url, quality } = req.body || {}
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'URL is required' })
     }
 
-    const ytDlpManager = this.ytDlpManager || req.ytDlpManager
-    if (!ytDlpManager?.isAvailable) {
-      return res.status(503).json({ error: 'yt-dlp is not available on this server' })
-    }
-
-    const videoInfo = await ytDlpManager.getVideoInfo(url).catch((err) => {
-      Logger.error(`[PodcastController] Failed to get video info from URL "${url}"`, err)
-      return null
-    })
-
-    if (!videoInfo) {
-      return res.status(400).json({ error: 'Failed to get video info from URL' })
-    }
-
-    const rawDate = videoInfo.release_date || videoInfo.upload_date || videoInfo.modified_date || videoInfo.datetime || videoInfo.date
-    const rawTimestamp = videoInfo.release_timestamp || videoInfo.timestamp || videoInfo.epoch
-    const { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
-    const extracted = extractEpisodeNumbers(videoInfo.title || '')
-    const season = videoInfo.season_number != null ? String(videoInfo.season_number) : (extracted.season || '')
-    const episodeNum = videoInfo.episode_number != null ? String(videoInfo.episode_number) : (extracted.episode || '')
-    const author = videoInfo.uploader || videoInfo.channel || videoInfo.artist || videoInfo.creator || ''
-
-    let chapters = []
-    if (Array.isArray(videoInfo.chapters) && videoInfo.chapters.length) {
-      chapters = videoInfo.chapters.map((ch, idx) => ({
-        id: idx,
-        start: typeof ch.start_time === 'number' ? ch.start_time : 0,
-        end: typeof ch.end_time === 'number' ? ch.end_time : 0,
-        title: ch.title || `Chapter ${idx + 1}`
-      }))
-    }
-
-    const tags = Array.isArray(videoInfo.tags) ? videoInfo.tags.filter((t) => typeof t === 'string' && t.trim()) : []
-    const categories = Array.isArray(videoInfo.categories) ? videoInfo.categories.filter((c) => typeof c === 'string' && c.trim()) : []
-    const thumbnail = (videoInfo.thumbnails?.length ? videoInfo.thumbnails[videoInfo.thumbnails.length - 1].url : null) || videoInfo.thumbnail || null
-    const duration = videoInfo.duration != null && !isNaN(Number(videoInfo.duration)) ? Number(videoInfo.duration) : null
-
-    const episode = {
-      title: videoInfo.title || 'Untitled',
-      subtitle: author,
-      description: videoInfo.description || '',
-      descriptionPlain: videoInfo.description || '',
-      pubDate,
-      episodeType: videoInfo.episode_type || 'full',
-      season,
-      episode: episodeNum,
-      author,
-      duration: duration ? String(duration) : '',
-      durationSeconds: duration,
-      explicit: '',
-      enclosure: { url, type: 'video/mp4' },
-      publishedAt,
-      guid: videoInfo.id || url,
-      isVideo: true,
-      isYtDlp: true,
-      quality: quality || req.libraryItem?.media?.maxDownloadResolution || 'best_compatible',
-      thumbnail,
-      chapters,
-      extraData: {
-        guid: videoInfo.id || url,
-        webpageUrl: videoInfo.webpage_url || url,
-        uploader: videoInfo.uploader || '',
-        uploaderId: videoInfo.uploader_id || '',
-        uploaderUrl: videoInfo.uploader_url || '',
-        channel: videoInfo.channel || '',
-        channelId: videoInfo.channel_id || '',
-        channelUrl: videoInfo.channel_url || '',
-        viewCount: videoInfo.view_count != null ? Number(videoInfo.view_count) : null,
-        likeCount: videoInfo.like_count != null ? Number(videoInfo.like_count) : null,
-        tags,
-        categories
+    try {
+      const ytDlpManager = this.ytDlpManager || req.ytDlpManager || global.ytDlpManager
+      if (!ytDlpManager?.isAvailable) {
+        return res.status(503).json({ error: 'yt-dlp is not available on this server' })
       }
-    }
 
-    const podcastManager = this.podcastManager || req.podcastManager
-    await podcastManager.downloadPodcastEpisodes(req.libraryItem, [episode], false)
-    res.json({ queued: true, title: videoInfo.title })
+      const videoInfo = await ytDlpManager.getVideoInfo(url).catch((err) => {
+        Logger.error(`[PodcastController] Failed to get video info from URL "${url}"`, err)
+        return null
+      })
+
+      if (!videoInfo) {
+        return res.status(400).json({ error: 'Failed to get video info from URL' })
+      }
+
+      const rawDate = videoInfo.release_date || videoInfo.upload_date || videoInfo.modified_date || videoInfo.datetime || videoInfo.date
+      const rawTimestamp = videoInfo.release_timestamp || videoInfo.timestamp || videoInfo.epoch
+      const { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
+      const extracted = extractEpisodeNumbers(videoInfo.title || '')
+      const season = videoInfo.season_number != null ? String(videoInfo.season_number) : (extracted.season || '')
+      const episodeNum = videoInfo.episode_number != null ? String(videoInfo.episode_number) : (extracted.episode || '')
+      const author = videoInfo.uploader || videoInfo.channel || videoInfo.artist || videoInfo.creator || ''
+
+      let chapters = []
+      if (Array.isArray(videoInfo.chapters) && videoInfo.chapters.length) {
+        chapters = videoInfo.chapters.map((ch, idx) => ({
+          id: idx,
+          start: typeof ch.start_time === 'number' ? ch.start_time : 0,
+          end: typeof ch.end_time === 'number' ? ch.end_time : 0,
+          title: ch.title || `Chapter ${idx + 1}`
+        }))
+      }
+
+      const tags = Array.isArray(videoInfo.tags) ? videoInfo.tags.filter((t) => typeof t === 'string' && t.trim()) : []
+      const categories = Array.isArray(videoInfo.categories) ? videoInfo.categories.filter((c) => typeof c === 'string' && c.trim()) : []
+      const thumbnail = (videoInfo.thumbnails?.length ? videoInfo.thumbnails[videoInfo.thumbnails.length - 1].url : null) || videoInfo.thumbnail || null
+      const duration = videoInfo.duration != null && !isNaN(Number(videoInfo.duration)) ? Number(videoInfo.duration) : null
+
+      const episode = {
+        title: videoInfo.title || 'Untitled',
+        subtitle: author,
+        description: videoInfo.description || '',
+        descriptionPlain: videoInfo.description || '',
+        pubDate,
+        episodeType: videoInfo.episode_type || 'full',
+        season,
+        episode: episodeNum,
+        author,
+        duration: duration ? String(duration) : '',
+        durationSeconds: duration,
+        explicit: '',
+        enclosure: { url, type: 'video/mp4' },
+        publishedAt,
+        guid: videoInfo.id || url,
+        isVideo: true,
+        isYtDlp: true,
+        quality: quality || req.libraryItem?.media?.maxDownloadResolution || 'best_compatible',
+        thumbnail,
+        chapters,
+        extraData: {
+          guid: videoInfo.id || url,
+          webpageUrl: videoInfo.webpage_url || url,
+          uploader: videoInfo.uploader || '',
+          uploaderId: videoInfo.uploader_id || '',
+          uploaderUrl: videoInfo.uploader_url || '',
+          channel: videoInfo.channel || '',
+          channelId: videoInfo.channel_id || '',
+          channelUrl: videoInfo.channel_url || '',
+          viewCount: videoInfo.view_count != null ? Number(videoInfo.view_count) : null,
+          likeCount: videoInfo.like_count != null ? Number(videoInfo.like_count) : null,
+          tags,
+          categories
+        }
+      }
+
+      const podcastManager = this.podcastManager || req.podcastManager || global.podcastManager
+      await podcastManager.downloadPodcastEpisodes(req.libraryItem, [episode], false)
+      res.json({ queued: true, title: videoInfo.title })
+    } catch (err) {
+      Logger.error(`[PodcastController] Error downloading yt-dlp episode:`, err)
+      res.status(500).json({ error: 'Internal server error while downloading episode' })
+    }
   }
 
   /**
@@ -619,7 +624,7 @@ class PodcastController {
    */
   async updateEpisode(req, res) {
     /** @type {import('../models/PodcastEpisode')} */
-    const episode = req.libraryItem.media.podcastEpisodes.find((ep) => ep.id === req.params.episodeId)
+    const episode = req.libraryItem?.media?.podcastEpisodes?.find((ep) => ep.id === req.params.episodeId)
     if (!episode) {
       return res.status(404).send('Episode not found')
     }
@@ -655,7 +660,7 @@ class PodcastController {
           updatePayload.enclosureType = typeof enclosure.type === 'string' ? enclosure.type : null
           updatePayload.enclosureSize = enclosure.length !== undefined && enclosure.length !== null ? enclosure.length : null
         }
-      } else if (key === 'chapters' && Array.isArray(req.body[key]) && req.body[key].every((ch) => typeof ch === 'object' && ch.title && ch.start)) {
+      } else if (key === 'chapters' && Array.isArray(req.body[key]) && req.body[key].every((ch) => typeof ch === 'object' && ch && ch.title && typeof ch.start === 'number' && !isNaN(ch.start))) {
         updatePayload[key] = req.body[key]
       } else if (key === 'publishedAt' && typeof req.body[key] === 'number') {
         updatePayload[key] = req.body[key]
@@ -687,9 +692,9 @@ class PodcastController {
     const episodeId = req.params.episodeId
 
     /** @type {import('../models/PodcastEpisode')} */
-    const episode = req.libraryItem.media.podcastEpisodes.find((ep) => ep.id === episodeId)
+    const episode = req.libraryItem?.media?.podcastEpisodes?.find((ep) => ep.id === episodeId)
     if (!episode) {
-      Logger.error(`[PodcastController] getEpisode episode ${episodeId} not found for item ${req.libraryItem.id}`)
+      Logger.error(`[PodcastController] getEpisode episode ${episodeId} not found for item ${req.libraryItem?.id}`)
       return res.sendStatus(404)
     }
 
@@ -707,14 +712,16 @@ class PodcastController {
     const hardDelete = req.query.hard === '1'
 
     /** @type {import('../models/PodcastEpisode')} */
-    const episode = req.libraryItem.media.podcastEpisodes.find((ep) => ep.id === episodeId)
+    const episode = req.libraryItem?.media?.podcastEpisodes?.find((ep) => ep.id === episodeId)
     if (!episode) {
-      Logger.error(`[PodcastController] removeEpisode episode ${episodeId} not found for item ${req.libraryItem.id}`)
+      Logger.error(`[PodcastController] removeEpisode episode ${episodeId} not found for item ${req.libraryItem?.id}`)
       return res.sendStatus(404)
     }
 
     // Remove it from the podcastEpisodes array
-    req.libraryItem.media.podcastEpisodes = req.libraryItem.media.podcastEpisodes.filter((ep) => ep.id !== episodeId)
+    if (Array.isArray(req.libraryItem?.media?.podcastEpisodes)) {
+      req.libraryItem.media.podcastEpisodes = req.libraryItem.media.podcastEpisodes.filter((ep) => ep.id !== episodeId)
+    }
 
     if (hardDelete) {
       const mediaFile = episode.audioFile || episode.videoFile

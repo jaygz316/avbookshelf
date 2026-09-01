@@ -777,7 +777,7 @@ class MiscController {
    * @param {Response} res
    */
   getYtDlpStatus(req, res) {
-    const ytDlpManager = this.ytDlpManager || req.ytDlpManager
+    const ytDlpManager = this.ytDlpManager || req.ytDlpManager || global.ytDlpManager
     res.json({
       isAvailable: ytDlpManager?.isAvailable || false,
       path: ytDlpManager?.ytDlpPath || null
@@ -791,12 +791,12 @@ class MiscController {
    * @param {Response} res
    */
   async getYtDlpVideoInfo(req, res) {
-    const { url } = req.body
+    const { url } = req.body || {}
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'URL is required' })
     }
 
-    const ytDlpManager = this.ytDlpManager || req.ytDlpManager
+    const ytDlpManager = this.ytDlpManager || req.ytDlpManager || global.ytDlpManager
     if (!ytDlpManager?.isAvailable) {
       return res.status(503).json({ error: 'yt-dlp is not available on this server' })
     }

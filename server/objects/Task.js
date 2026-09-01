@@ -45,6 +45,9 @@ class Task {
     /** @type {boolean} */
     this.isFinished = false
 
+    /** @type {number|null} 0-1 */
+    this.progress = null
+
     /** @type {number} */
     this.startedAt = null
     /** @type {number} */
@@ -68,9 +71,19 @@ class Task {
       showSuccess: this.showSuccess,
       isFailed: this.isFailed,
       isFinished: this.isFinished,
+      progress: this.progress,
       startedAt: this.startedAt,
       finishedAt: this.finishedAt
     }
+  }
+
+  /**
+   * Set task progress (0-1)
+   *
+   * @param {number} progress
+   */
+  setProgress(progress) {
+    this.progress = progress
   }
 
   /**
@@ -85,11 +98,11 @@ class Task {
   setData(action, titleString, descriptionString, showSuccess, data = {}) {
     this.id = uuidv4()
     this.action = action
-    this.data = { ...data }
-    this.title = titleString.text
-    this.titleKey = titleString.key || null
-    this.titleSubs = titleString.subs || null
-    this.description = descriptionString?.text || null
+    this.data = data ? { ...data } : {}
+    this.title = typeof titleString === 'string' ? titleString : titleString?.text || null
+    this.titleKey = titleString?.key || null
+    this.titleSubs = titleString?.subs || null
+    this.description = typeof descriptionString === 'string' ? descriptionString : descriptionString?.text || null
     this.descriptionKey = descriptionString?.key || null
     this.descriptionSubs = descriptionString?.subs || null
     this.showSuccess = showSuccess
@@ -102,9 +115,9 @@ class Task {
    * @param {TaskString} messageString
    */
   setFailed(messageString) {
-    this.error = messageString.text
-    this.errorKey = messageString.key || null
-    this.errorSubs = messageString.subs || null
+    this.error = typeof messageString === 'string' ? messageString : messageString?.text || null
+    this.errorKey = messageString?.key || null
+    this.errorSubs = messageString?.subs || null
     this.isFailed = true
     this.failedAt = Date.now()
     this.setFinished()
@@ -118,9 +131,9 @@ class Task {
    */
   setFinished(newDescriptionString = null, clearDescription = false) {
     if (newDescriptionString) {
-      this.description = newDescriptionString.text
-      this.descriptionKey = newDescriptionString.key || null
-      this.descriptionSubs = newDescriptionString.subs || null
+      this.description = typeof newDescriptionString === 'string' ? newDescriptionString : newDescriptionString?.text || null
+      this.descriptionKey = newDescriptionString?.key || null
+      this.descriptionSubs = newDescriptionString?.subs || null
     } else if (clearDescription) {
       this.description = null
       this.descriptionKey = null

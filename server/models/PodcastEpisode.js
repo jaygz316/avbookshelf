@@ -350,15 +350,15 @@ class PodcastEpisode extends Model {
       enclosure,
       guid: this.extraData?.guid || null,
       pubDate: this.pubDate,
-      chapters: structuredClone(this.chapters),
+      chapters: this.chapters ? structuredClone(this.chapters) : [],
       audioFile: this.audioFile ? structuredClone(this.audioFile) : null,
       videoFile: this.videoFile ? structuredClone(this.videoFile) : null,
       episodeMediaType: isVideo ? 'video' : 'audio',
       isVideo,
       thumbnail: this.thumbnail || null,
-      publishedAt: this.publishedAt?.valueOf() || null,
-      addedAt: this.createdAt.valueOf(),
-      updatedAt: this.updatedAt.valueOf()
+      publishedAt: this.publishedAt?.valueOf?.() || (this.publishedAt ? new Date(this.publishedAt).getTime() : null),
+      addedAt: this.createdAt?.valueOf?.() || (this.createdAt ? new Date(this.createdAt).getTime() : Date.now()),
+      updatedAt: this.updatedAt?.valueOf?.() || (this.updatedAt ? new Date(this.updatedAt).getTime() : Date.now())
     }
   }
 

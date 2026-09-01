@@ -44,8 +44,8 @@ class PodcastEpisodeDownload {
       startedAt: this.startedAt,
       createdAt: this.createdAt,
       finishedAt: this.finishedAt,
-      podcastTitle: this.libraryItem?.media.title ?? null,
-      podcastExplicit: !!this.libraryItem?.media.explicit,
+      podcastTitle: this.libraryItem?.media?.title ?? null,
+      podcastExplicit: !!this.libraryItem?.media?.explicit,
       season: this.rssPodcastEpisode?.season ?? null,
       episode: this.rssPodcastEpisode?.episode ?? null,
       episodeType: this.rssPodcastEpisode?.episodeType ?? 'full',
@@ -136,11 +136,15 @@ class PodcastEpisodeDownload {
 
     const url = rssPodcastEpisode?.enclosure?.url || rssPodcastEpisode?.url || ''
     if (url && typeof url === 'string') {
-      if (decodeURIComponent(url) !== url) {
-        // Already encoded
+      try {
+        if (decodeURIComponent(url) !== url) {
+          // Already encoded
+          this.url = url
+        } else {
+          this.url = encodeURI(url)
+        }
+      } catch {
         this.url = url
-      } else {
-        this.url = encodeURI(url)
       }
     } else {
       this.url = ''

@@ -21,6 +21,10 @@ class VideoScanner {
    * @returns {Promise<{videoFile: VideoFile, probeData: Object, infoJson: Object|null}|null>}
    */
   async scanVideoLibraryFile(libraryFile) {
+    if (!libraryFile?.metadata?.path) {
+      Logger.error('[VideoScanner] Invalid libraryFile or missing metadata path')
+      return null
+    }
     const probeData = await prober.probe(libraryFile.metadata.path)
     if (probeData.error) {
       Logger.error(`[VideoScanner] ${probeData.error} : "${libraryFile.metadata.path}"`)
@@ -131,7 +135,7 @@ class VideoScanner {
    */
   async handleModifiedVideoFiles(existingLibraryItem, libraryItemData, existingPodcastEpisodes, AudioFileScanner, libraryScan) {
     let hasChanges = false
-    const videoLibraryFilesModified = libraryItemData.videoLibraryFilesModified || libraryItemData.libraryFilesModified.filter((lf) => globals.SupportedVideoTypes.includes(lf.old.metadata.ext?.slice(1).toLowerCase() || ''))
+    const videoLibraryFilesModified = libraryItemData.videoLibraryFilesModified || (libraryItemData.libraryFilesModified || []).filter((lf) => globals.SupportedVideoTypes.includes((lf.old?.metadata?.ext || lf.new?.metadata?.ext)?.slice(1).toLowerCase() || ''))
     if (!videoLibraryFilesModified.length) return hasChanges
 
     for (const podcastEpisode of existingPodcastEpisodes) {
@@ -215,7 +219,7 @@ class VideoScanner {
    */
   async handleAddedVideoFiles(existingLibraryItem, libraryItemData, existingPodcastEpisodes, media, AudioFileScanner, libraryScan) {
     let hasChanges = false
-    const videoLibraryFilesAdded = libraryItemData.videoLibraryFilesAdded || libraryItemData.libraryFilesAdded.filter((lf) => globals.SupportedVideoTypes.includes(lf.metadata.ext?.slice(1).toLowerCase() || ''))
+    const videoLibraryFilesAdded = libraryItemData.videoLibraryFilesAdded || (libraryItemData.libraryFilesAdded || []).filter((lf) => globals.SupportedVideoTypes.includes(lf.metadata?.ext?.slice(1).toLowerCase() || ''))
     
     for (const videoLf of videoLibraryFilesAdded) {
       const res = await this.scanVideoLibraryFile(videoLf)
@@ -223,17 +227,17 @@ class VideoScanner {
 
       const videoFilenameNoExt = videoLf.metadata?.filenameNoExt || res.videoFile.metadata?.filenameNoExt || Path.parse(videoLf.metadata?.filename || '').name
       const infoJson = res.infoJson
-      const videoTitle = infoJson?.title || res.probeData.audioMetaTags?.tagTitle || videoFilenameNoExt || res.videoFile.metadata.filename.replace(/\.[^.]+$/, '')
+      const videoTitle = infoJson?.title || res.probeData?.audioMetaTags?.tagTitle || videoFilenameNoExt || res.videoFile.metadata?.filename?.replace(/\.[^.]+$/, '')
       const extracted = extractEpisodeNumbers(videoTitle)
       const season = infoJson?.season || extracted.season || null
       const episode = infoJson?.episode || extracted.episode || null
 
       // Check if this video file is already linked to an existing episode or matches an existing audio episode
       const matchingEpisode = existingPodcastEpisodes.find((ep) => {
-        if (ep.videoFile && (ep.videoFile.ino === videoLf.ino || filePathToPOSIX(ep.videoFile.metadata?.path) === filePathToPOSIX(videoLf.metadata.path))) {
+        if (ep.videoFile && (ep.videoFile.ino === videoLf.ino || (ep.videoFile.metadata?.path && videoLf.metadata?.path && filePathToPOSIX(ep.videoFile.metadata.path) === filePathToPOSIX(videoLf.metadata.path)))) {
           return true
         }
-        if (ep.audioFile && (ep.audioFile.ino === videoLf.ino || filePathToPOSIX(ep.audioFile.metadata?.path) === filePathToPOSIX(videoLf.metadata.path))) {
+        if (ep.audioFile && (ep.audioFile.ino === videoLf.ino || (ep.audioFile.metadata?.path && videoLf.metadata?.path && filePathToPOSIX(ep.audioFile.metadata.path) === filePathToPOSIX(videoLf.metadata.path)))) {
           return true
         }
         if (ep.videoFile) {
@@ -432,7 +436,7 @@ class VideoScanner {
         newPodcastEpisodes.push(newEpisode)
       }
 
-      if (videoFile.thumbnail) {
+      if (videoFile.thumbnail && videoFile.metadata?.path) {
         const thumbFilename = Path.basename(videoFile.thumbnail)
         const thumbPath = Path.join(Path.dirname(videoFile.metadata.path), thumbFilename)
         const thumbExistsSync = fsExtra.pathExistsSync(thumbPath)
@@ -441,6 +445,9 @@ class VideoScanner {
           if (!existingLf) {
             const thumbLf = new LibraryFile()
             thumbLf.setDataFromPathSync(thumbPath, videoFile.thumbnail)
+            if (!Array.isArray(libraryItemData.libraryFiles)) {
+              libraryItemData.libraryFiles = []
+            }
             libraryItemData.libraryFiles.push(thumbLf)
           }
         }

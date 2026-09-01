@@ -88,18 +88,18 @@ class VideoFile {
 
   setDataFromProbe(libraryFile, probeData) {
     this.index = null
-    this.ino = libraryFile.ino || null
+    this.ino = libraryFile?.ino || null
 
-    if (libraryFile.metadata instanceof FileMetadata) {
+    if (libraryFile?.metadata instanceof FileMetadata) {
       this.metadata = libraryFile.metadata.clone()
     } else {
-      this.metadata = new FileMetadata(libraryFile.metadata)
+      this.metadata = new FileMetadata(libraryFile?.metadata || {})
     }
 
     this.addedAt = Date.now()
     this.updatedAt = Date.now()
-    this.duration = probeData.duration
-    this.mimeType = this.getMimeTypeFromExtension(libraryFile.metadata.ext)
+    this.duration = probeData?.duration || null
+    this.mimeType = this.getMimeTypeFromExtension(libraryFile?.metadata?.ext)
 
     // Video stream
     this.codec = probeData.videoStream?.codec || probeData.codec || null

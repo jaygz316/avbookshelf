@@ -30,7 +30,7 @@ class TaskManager {
    * @param {Task} task
    */
   taskFinished(task) {
-    if (this.tasks.some((t) => t.id === task.id)) {
+    if (task && this.tasks.some((t) => t.id === task.id)) {
       this.tasks = this.tasks.filter((t) => t.id !== task.id)
       SocketAuthority.emitter('task_finished', task.toJSON())
     }
@@ -47,7 +47,7 @@ class TaskManager {
    */
   createAndAddTask(action, titleString, descriptionString, showSuccess, data = {}) {
     const task = new Task()
-    task.setData(action, titleString, descriptionString, showSuccess, data)
+    task.setData(action, titleString, descriptionString, showSuccess, data || {})
     this.addTask(task)
     return task
   }
