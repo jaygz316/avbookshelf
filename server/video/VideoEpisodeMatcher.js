@@ -39,14 +39,14 @@ function extractEpisodeNumbers(title) {
   }
 
   // Prefix number: "123 - Title" or "123. Title" or "123: Title" or "123 | Title"
-  const prefixMatch = title.match(/^(\d{1,5})\s*[-–—.:|]\s+\w/i)
+  const prefixMatch = title.match(/^(\d{1,5})\s*[-–—.:|]\s*/)
   if (prefixMatch) {
     episode = String(parseInt(prefixMatch[1], 10))
     return { season, episode }
   }
 
-  // Suffix number: "Title - 123" or "Title | #123" or "Title - Ep 123"
-  const suffixMatch = title.match(/\s*[-–—|]\s*(?:ep\.?|episode|#)?\s*(\d{1,5})$/i)
+  // Suffix number: "Title - 123" or "Title | #123" or "Title - Ep 123" or "Title—123"
+  const suffixMatch = title.match(/[-–—|]\s*(?:ep\.?|episode|#)?\s*(\d{1,5})\s*$/i)
   if (suffixMatch) {
     episode = String(parseInt(suffixMatch[1], 10))
     return { season, episode }

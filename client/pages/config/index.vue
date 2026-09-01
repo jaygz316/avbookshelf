@@ -103,6 +103,22 @@
             <ui-toggle-switch v-model="newServerSettings.allowIframe" :label="$strings.LabelSettingsAllowIframe" :disabled="updatingServerSettings" @input="(val) => updateSettingsKey('allowIframe', val)" />
             <p aria-hidden="true" class="pl-4">{{ $strings.LabelSettingsAllowIframe }}</p>
           </div>
+
+          <div class="pt-4">
+            <h2 class="font-semibold">{{ $strings.HeaderSettingsYtDlp }}</h2>
+          </div>
+
+          <div class="py-2">
+            <ui-dropdown
+              :label="$strings.LabelSettingsYtDlpSpeedLimit"
+              v-model="newServerSettings.ytdlpDownloadSpeedLimit"
+              :items="ytdlpSpeedLimitOptions"
+              small
+              class="max-w-72"
+              @input="(val) => updateSettingsKey('ytdlpDownloadSpeedLimit', val)"
+            />
+            <p class="text-xs ml-1 mt-1 text-white/60">{{ $strings.LabelSettingsYtDlpSpeedLimitHelp }}</p>
+          </div>
         </div>
 
         <div class="flex-1">
@@ -263,6 +279,16 @@ export default {
     timeExample() {
       const date = new Date(2014, 2, 25, 17, 30, 0)
       return this.$formatJsTime(date, this.newServerSettings.timeFormat)
+    },
+    ytdlpSpeedLimitOptions() {
+      return [
+        { value: null, text: this.$strings.LabelUnlimited || 'Unlimited' },
+        { value: '500K', text: '500 KB/s' },
+        { value: '1M', text: '1 MB/s' },
+        { value: '2M', text: '2 MB/s (Recommended)' },
+        { value: '5M', text: '5 MB/s' },
+        { value: '10M', text: '10 MB/s' }
+      ]
     }
   },
   methods: {
