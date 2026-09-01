@@ -234,21 +234,27 @@ class PodcastController {
     const limit = req.body.limit != null && !isNaN(req.body.limit) ? Number(req.body.limit) : null
 
     if (isYouTube) {
-      if (!ytDlpManager?.isAvailable) {
-        Logger.warn(`[PodcastController] yt-dlp is not available to fetch YouTube feed "${url}"`)
-        return res.status(503).send('yt-dlp is not available on this server')
+      if (ytDlpManager?.isAvailable) {
+        try {
+          const feedData = await ytDlpManager.getChannelFeed(url, limit)
+          if (feedData?.episodes?.length) {
+            return res.json({ podcast: feedData })
+          }
+        } catch (error) {
+          Logger.warn(`[PodcastController] yt-dlp getChannelFeed failed for "${url}": ${error.message} - falling back to RSS/Atom parser`)
+        }
       }
 
-      try {
-        const feedData = await ytDlpManager.getChannelFeed(url, limit)
-        return res.json({ podcast: feedData })
-      } catch (error) {
-        Logger.error(`[PodcastController] Failed to fetch YouTube feed "${url}":`, error)
-        return res.status(404).send('Failed to fetch YouTube feed: ' + (error.message || 'Unknown error'))
+      // Try XML/Atom parser as fallback for YouTube feeds (e.g. videos.xml)
+      const podcast = await getPodcastFeed(url).catch(() => null)
+      if (podcast?.episodes?.length) {
+        return res.json({ podcast })
       }
+
+      return res.status(404).send('Failed to fetch YouTube podcast feed')
     }
 
-    const podcast = await getPodcastFeed(url)
+    const podcast = await getPodcastFeed(url).catch(() => null)
     if (!podcast) {
       // If standard RSS XML fails and yt-dlp is available, try yt-dlp as fallback
       if (ytDlpManager?.isAvailable) {

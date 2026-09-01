@@ -343,6 +343,65 @@ function extractPodcastEpisodes(items) {
   return episodes
 }
 
+function cleanAtomPodcastJson(feedJson, excludeEpisodeMetadata) {
+  if (!feedJson) return null
+  const title = feedJson.title?.[0] || 'Unknown'
+  const author = feedJson.author?.[0]?.name?.[0] || ''
+  const podcast = {
+    metadata: {
+      title,
+      author,
+      description: feedJson.subtitle?.[0] || '',
+      descriptionPlain: feedJson.subtitle?.[0] || '',
+      image: feedJson.icon?.[0] || feedJson.logo?.[0] || '',
+      feedType: 'youtube',
+      type: 'episodic'
+    }
+  }
+
+  const entries = feedJson.entry || []
+  if (!excludeEpisodeMetadata) {
+    const episodes = []
+    for (const entry of entries) {
+      const videoId = entry['yt:videoId']?.[0] || entry['id']?.[0]?.replace('yt:video:', '') || ''
+      const epTitle = entry.title?.[0] || 'Untitled'
+      const published = entry.published?.[0] || entry.updated?.[0]
+      const { publishedAt, pubDate } = parseDateToTimestampAndString(published)
+      const linkHref = entry.link?.[0]?.['$']?.href || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : '')
+      const desc = entry['media:group']?.[0]?.['media:description']?.[0] || entry.summary?.[0] || ''
+      const thumb = entry['media:group']?.[0]?.['media:thumbnail']?.[0]?.['$']?.url || ''
+      episodes.push({
+        title: epTitle,
+        subtitle: author,
+        description: desc,
+        descriptionPlain: desc,
+        pubDate,
+        publishedAt,
+        episodeType: 'full',
+        season: '',
+        episode: '',
+        author,
+        duration: '',
+        durationSeconds: null,
+        explicit: '',
+        enclosure: {
+          url: linkHref,
+          type: 'video/mp4'
+        },
+        guid: videoId || linkHref,
+        isVideo: true,
+        isYtDlp: true,
+        thumbnail: thumb
+      })
+    }
+    podcast.episodes = episodes
+    podcast.numEpisodes = episodes.length
+  } else {
+    podcast.numEpisodes = entries.length
+  }
+  return podcast
+}
+
 function cleanPodcastJson(rssJson, excludeEpisodeMetadata) {
   if (!rssJson.channel?.length) {
     Logger.error(`[podcastUtil] Invalid podcast no channel object`)
@@ -367,12 +426,16 @@ function cleanPodcastJson(rssJson, excludeEpisodeMetadata) {
 module.exports.parsePodcastRssFeedXml = async (xml, excludeEpisodeMetadata = false, includeRaw = false) => {
   if (!xml) return null
   const json = await xmlToJSON(xml)
-  if (!json?.rss) {
-    Logger.error('[podcastUtils] Invalid XML or RSS feed')
+  let podcast = null
+  if (json?.rss) {
+    podcast = cleanPodcastJson(json.rss, excludeEpisodeMetadata)
+  } else if (json?.feed) {
+    podcast = cleanAtomPodcastJson(json.feed, excludeEpisodeMetadata)
+  } else {
+    Logger.error('[podcastUtils] Invalid XML, RSS, or Atom feed')
     return null
   }
 
-  const podcast = cleanPodcastJson(json.rss, excludeEpisodeMetadata)
   if (!podcast) return null
 
   if (includeRaw) {
