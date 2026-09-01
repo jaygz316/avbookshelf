@@ -50,6 +50,60 @@ class VideoManager {
   }
 
   /**
+   * Fetch accurate publish dates for individual videos via yt-dlp --dump-json.
+   * Runs concurrency-limited per-video lookups for video IDs that are still missing dates
+   * after the Atom RSS feed enrichment (which is capped at 15 entries by YouTube).
+   *
+   * @param {string[]} videoIds - YouTube video IDs to fetch dates for
+   * @param {number} [concurrency=3] - Max concurrent yt-dlp processes
+   * @returns {Promise<Record<string, { publishedAt: number, pubDate: string }>>}
+   */
+  async fetchVideoDatesViaDlp(videoIds, concurrency = 3) {
+    if (!this.isAvailable || !videoIds.length) return {}
+
+    const dateMap = {}
+    // Process in batches to limit concurrent yt-dlp processes
+    for (let i = 0; i < videoIds.length; i += concurrency) {
+      const batch = videoIds.slice(i, i + concurrency)
+      const results = await Promise.allSettled(
+        batch.map(async (videoId) => {
+          const url = `https://www.youtube.com/watch?v=${videoId}`
+          try {
+            const args = ['--dump-json', '--no-download', '--no-playlist', url]
+            const entries = await this.execYtDlp(args)
+            const info = entries[0]
+            if (!info) return
+
+            const rawDate =
+              info.release_date ||
+              info.upload_date ||
+              info.published_at ||
+              info.publish_date
+            const rawTimestamp =
+              info.release_timestamp ||
+              info.timestamp ||
+              info.published_timestamp
+
+            const { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
+            if (publishedAt) {
+              dateMap[videoId] = { publishedAt, pubDate }
+            }
+          } catch (err) {
+            Logger.debug(`[VideoManager] Failed to fetch date for video ${videoId}: ${err.message}`)
+          }
+        })
+      )
+      // Log any unexpected rejections at debug level
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          Logger.debug(`[VideoManager] fetchVideoDatesViaDlp batch item rejected: ${result.reason?.message || result.reason}`)
+        }
+      }
+    }
+    return dateMap
+  }
+
+  /**
    * Parse upload date string or number to timestamp in milliseconds
    * @param {string|number} uploadDate
    * @param {string|number} [timestamp]
@@ -464,107 +518,127 @@ class VideoManager {
     const playlistId = firstEntry.playlist_id && !firstEntry.playlist_id.startsWith('UC') ? firstEntry.playlist_id : null
     const dateMap = await this.fetchYouTubeFeedDates(channelId, playlistId).catch(() => ({}))
 
-          const episodes = entries.map((entry) => {
-            const videoUrl = entry.url || (entry.id ? `https://www.youtube.com/watch?v=${entry.id}` : url)
-            const rawDate =
-              entry.release_date ||
-              entry.upload_date ||
-              entry.published_at ||
-              entry.publish_date ||
-              entry.published_time ||
-              entry.publish_time ||
-              entry.pubDate ||
-              entry.pubdate ||
-              entry.publication_date ||
-              entry.modified_date ||
-              entry.datetime ||
-              entry.date ||
-              entry.release_year ||
-              entry.year
-            const rawTimestamp =
-              entry.release_timestamp ||
-              entry.timestamp ||
-              entry.published_timestamp ||
-              entry.modified_timestamp ||
-              entry.start_time
-            let { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
+    const episodes = entries.map((entry) => {
+      const videoUrl = entry.url || (entry.id ? `https://www.youtube.com/watch?v=${entry.id}` : url)
+      const rawDate =
+        entry.release_date ||
+        entry.upload_date ||
+        entry.published_at ||
+        entry.publish_date ||
+        entry.published_time ||
+        entry.publish_time ||
+        entry.pubDate ||
+        entry.pubdate ||
+        entry.publication_date ||
+        entry.modified_date ||
+        entry.datetime ||
+        entry.date ||
+        entry.release_year ||
+        entry.year
+      const rawTimestamp =
+        entry.release_timestamp ||
+        entry.timestamp ||
+        entry.published_timestamp ||
+        entry.modified_timestamp ||
+        entry.start_time
+      let { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
 
-            // If date is mapped from official YouTube Atom feed
-            if (entry.id && dateMap[entry.id]) {
-              publishedAt = publishedAt || dateMap[entry.id].publishedAt
-              pubDate = pubDate || dateMap[entry.id].pubDate
-            }
+      // If date is mapped from official YouTube Atom feed
+      if (entry.id && dateMap[entry.id]) {
+        publishedAt = publishedAt || dateMap[entry.id].publishedAt
+        pubDate = pubDate || dateMap[entry.id].pubDate
+      }
 
-            // If date is still missing, attempt to extract a strict date from entry title
-            if (!publishedAt || !pubDate) {
-              const parsedFallback = parseDateToTimestampAndString(entry.title || '')
-              if (parsedFallback.publishedAt) {
-                publishedAt = publishedAt || parsedFallback.publishedAt
-                pubDate = pubDate || parsedFallback.pubDate
-              }
-            }
-            const thumbnail = entry.thumbnails?.length
-              ? entry.thumbnails[entry.thumbnails.length - 1].url
-              : (entry.thumbnail || null)
-            const season = entry.season_number != null ? String(entry.season_number) : null
-            const episode = entry.episode_number != null ? String(entry.episode_number) : null
-            const extracted = (!season && !episode) ? extractEpisodeNumbers(entry.title || '') : {}
+      // If date is still missing, attempt to extract a strict date from entry title
+      if (!publishedAt || !pubDate) {
+        const parsedFallback = parseDateToTimestampAndString(entry.title || '')
+        if (parsedFallback.publishedAt) {
+          publishedAt = publishedAt || parsedFallback.publishedAt
+          pubDate = pubDate || parsedFallback.pubDate
+        }
+      }
+      const thumbnail = entry.thumbnails?.length
+        ? entry.thumbnails[entry.thumbnails.length - 1].url
+        : (entry.thumbnail || null)
+      const season = entry.season_number != null ? String(entry.season_number) : null
+      const episode = entry.episode_number != null ? String(entry.episode_number) : null
+      const extracted = (!season && !episode) ? extractEpisodeNumbers(entry.title || '') : {}
 
-            let chapters = []
-            if (Array.isArray(entry.chapters) && entry.chapters.length) {
-              chapters = entry.chapters.map((ch, idx) => ({
-                id: idx,
-                start: typeof ch.start_time === 'number' ? ch.start_time : 0,
-                end: typeof ch.end_time === 'number' ? ch.end_time : 0,
-                title: ch.title || `Chapter ${idx + 1}`
-              }))
-            }
+      let chapters = []
+      if (Array.isArray(entry.chapters) && entry.chapters.length) {
+        chapters = entry.chapters.map((ch, idx) => ({
+          id: idx,
+          start: typeof ch.start_time === 'number' ? ch.start_time : 0,
+          end: typeof ch.end_time === 'number' ? ch.end_time : 0,
+          title: ch.title || `Chapter ${idx + 1}`
+        }))
+      }
 
-            const tags = Array.isArray(entry.tags) ? entry.tags.filter((t) => typeof t === 'string' && t.trim()) : []
-            const categories = Array.isArray(entry.categories) ? entry.categories.filter((c) => typeof c === 'string' && c.trim()) : []
-            const author = entry.uploader || entry.channel || metadata.author || ''
+      const tags = Array.isArray(entry.tags) ? entry.tags.filter((t) => typeof t === 'string' && t.trim()) : []
+      const categories = Array.isArray(entry.categories) ? entry.categories.filter((c) => typeof c === 'string' && c.trim()) : []
+      const author = entry.uploader || entry.channel || metadata.author || ''
 
-            return {
-              title: entry.title || 'Untitled',
-              subtitle: author,
-              description: entry.description || '',
-              descriptionPlain: entry.description || '',
-              pubDate,
-              episodeType: 'full',
-              season: season || extracted.season || '',
-              episode: episode || extracted.episode || '',
-              author,
-              duration: entry.duration ? String(entry.duration) : '',
-              durationSeconds: entry.duration ? Number(entry.duration) : null,
-              explicit: '',
-              publishedAt,
-              enclosure: {
-                url: videoUrl,
-                type: entry.ext ? (VideoMimeType[entry.ext.toUpperCase()] || 'video/mp4') : 'video/mp4'
-              },
-              guid: entry.id || videoUrl,
-              isVideo: true,
-              isYtDlp: true,
-              thumbnail,
-              chaptersUrl: null,
-              chaptersType: null,
-              chapters,
-              extraData: {
-                guid: entry.id || videoUrl,
-                webpageUrl: entry.webpage_url || videoUrl,
-                uploader: entry.uploader || '',
-                uploaderId: entry.uploader_id || '',
-                uploaderUrl: entry.uploader_url || '',
-                channel: entry.channel || '',
-                channelId: entry.channel_id || '',
-                channelUrl: entry.channel_url || '',
-                viewCount: entry.view_count != null ? Number(entry.view_count) : null,
-                likeCount: entry.like_count != null ? Number(entry.like_count) : null,
-                tags,
-                categories
-              }
-            }
-        })
+      return {
+        title: entry.title || 'Untitled',
+        subtitle: author,
+        description: entry.description || '',
+        descriptionPlain: entry.description || '',
+        pubDate,
+        episodeType: 'full',
+        season: season || extracted.season || '',
+        episode: episode || extracted.episode || '',
+        author,
+        duration: entry.duration ? String(entry.duration) : '',
+        durationSeconds: entry.duration ? Number(entry.duration) : null,
+        explicit: '',
+        publishedAt,
+        enclosure: {
+          url: videoUrl,
+          type: entry.ext ? (VideoMimeType[entry.ext.toUpperCase()] || 'video/mp4') : 'video/mp4'
+        },
+        guid: entry.id || videoUrl,
+        isVideo: true,
+        isYtDlp: true,
+        thumbnail,
+        chaptersUrl: null,
+        chaptersType: null,
+        chapters,
+        extraData: {
+          guid: entry.id || videoUrl,
+          webpageUrl: entry.webpage_url || videoUrl,
+          uploader: entry.uploader || '',
+          uploaderId: entry.uploader_id || '',
+          uploaderUrl: entry.uploader_url || '',
+          channel: entry.channel || '',
+          channelId: entry.channel_id || '',
+          channelUrl: entry.channel_url || '',
+          viewCount: entry.view_count != null ? Number(entry.view_count) : null,
+          likeCount: entry.like_count != null ? Number(entry.like_count) : null,
+          tags,
+          categories
+        }
+      }
+    })
+
+    // Fetch accurate dates for episodes still missing publishedAt via per-video yt-dlp lookups.
+    // The Atom RSS feed only covers the last 15 videos, and --flat-playlist dates are unreliable,
+    // so this fallback is necessary for older videos in the channel/playlist.
+    const missingDateIds = episodes
+      .filter((ep) => !ep.publishedAt && ep.guid && ep.guid !== url)
+      .map((ep) => ep.guid)
+    if (missingDateIds.length > 0) {
+      Logger.info(`[VideoManager] Fetching accurate dates for ${missingDateIds.length} videos missing publishedAt`)
+      const dlpDateMap = await this.fetchVideoDatesViaDlp(missingDateIds).catch((err) => {
+        Logger.debug(`[VideoManager] fetchVideoDatesViaDlp failed: ${err.message}`)
+        return {}
+      })
+      for (const ep of episodes) {
+        if (!ep.publishedAt && ep.guid && dlpDateMap[ep.guid]) {
+          ep.publishedAt = dlpDateMap[ep.guid].publishedAt
+          ep.pubDate = dlpDateMap[ep.guid].pubDate
+        }
+      }
+    }
 
     return { metadata, episodes, numEpisodes: episodes.length }
   }
