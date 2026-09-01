@@ -570,8 +570,8 @@ export default {
       let episodeId = null
       const queueItems = []
       if (this.isPodcast) {
-        // Uses the sorting and filtering from the episode table component
-        const episodesInListeningOrder = this.$refs.episodesTable?.episodesList || []
+        const episodesInListeningOrder = this.$refs.episodesTable?.episodesList?.length ? this.$refs.episodesTable.episodesList : (this.libraryItem?.media?.episodes || [])
+        if (!episodesInListeningOrder.length) return
 
         // Find the first unplayed episode from the table
         let episodeIndex = episodesInListeningOrder.findIndex((ep) => {
@@ -581,7 +581,8 @@ export default {
         // If all episodes are played, use the first episode
         if (episodeIndex < 0) episodeIndex = 0
 
-        episodeId = episodesInListeningOrder[episodeIndex].id
+        episodeId = episodesInListeningOrder[episodeIndex]?.id || null
+        if (!episodeId) return
 
         for (let i = episodeIndex; i < episodesInListeningOrder.length; i++) {
           const episode = episodesInListeningOrder[i]

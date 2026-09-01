@@ -435,7 +435,7 @@ class LibraryItemController {
    * @param {Response} res
    */
   async getEpisodeThumbnail(req, res) {
-    return this.getCover(req, res)
+    return libraryItemController.getCover(req, res)
   }
 
   /**
