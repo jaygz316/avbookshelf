@@ -234,15 +234,14 @@ class PodcastController {
     const limit = req.body.limit != null && !isNaN(req.body.limit) ? Number(req.body.limit) : null
 
     if (isYouTube) {
-      if (ytDlpManager?.isAvailable) {
-        try {
-          const feedData = await ytDlpManager.getChannelFeed(url, limit)
-          if (feedData?.episodes?.length) {
-            return res.json({ podcast: feedData })
-          }
-        } catch (error) {
-          Logger.warn(`[PodcastController] yt-dlp getChannelFeed failed for "${url}": ${error.message} - falling back to RSS/Atom parser`)
+      const videoManager = ytDlpManager || global.ytDlpManager || new (require('../video/VideoManager'))()
+      try {
+        const feedData = await videoManager.getChannelFeed(url, limit)
+        if (feedData?.episodes?.length) {
+          return res.json({ podcast: feedData })
         }
+      } catch (error) {
+        Logger.warn(`[PodcastController] getChannelFeed failed for "${url}": ${error.message} - falling back to RSS/Atom parser`)
       }
 
       // Try XML/Atom parser as fallback for YouTube feeds (e.g. videos.xml)

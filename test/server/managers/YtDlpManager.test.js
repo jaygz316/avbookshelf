@@ -300,4 +300,202 @@ describe('YtDlpManager', () => {
       expect(allCapturedArgs[0]).to.include('20')
     })
   })
+
+  describe('normalizeYouTubeUrl', () => {
+    it('should normalize YouTube show URLs to playlist URLs', () => {
+      const manager = new YtDlpManager()
+      expect(
+        manager.normalizeYouTubeUrl('https://www.youtube.com/show/VLPLRDOtN2snjg4?sbp=KgtVNjFHWVF1LVEwRUAB')
+      ).to.equal('https://www.youtube.com/playlist?list=PLRDOtN2snjg4')
+      expect(
+        manager.normalizeYouTubeUrl('https://www.youtube.com/show/PLRDOtN2snjg4')
+      ).to.equal('https://www.youtube.com/playlist?list=PLRDOtN2snjg4')
+    })
+
+    it('should normalize watch URL with playlist list param', () => {
+      const manager = new YtDlpManager()
+      expect(
+        manager.normalizeYouTubeUrl('https://www.youtube.com/watch?v=U61GYQu-Q0E&list=VLPLRDOtN2snjg4&pp=iAQB')
+      ).to.equal('https://www.youtube.com/playlist?list=PLRDOtN2snjg4')
+    })
+
+    it('should strip VL prefix in playlist list param', () => {
+      const manager = new YtDlpManager()
+      expect(
+        manager.normalizeYouTubeUrl('https://www.youtube.com/playlist?list=VLPLRDOtN2snjg4')
+      ).to.equal('https://www.youtube.com/playlist?list=PLRDOtN2snjg4')
+    })
+
+    it('should append /videos to channel URLs without subpath', () => {
+      const manager = new YtDlpManager()
+      expect(
+        manager.normalizeYouTubeUrl('https://www.youtube.com/@AIForHumansShow')
+      ).to.equal('https://www.youtube.com/@AIForHumansShow/videos')
+      expect(
+        manager.normalizeYouTubeUrl('https://www.youtube.com/@AIForHumansShow/podcasts')
+      ).to.equal('https://www.youtube.com/@AIForHumansShow/podcasts')
+    })
+  })
+
+  describe('duration and relative date parsers', () => {
+    it('should parse duration strings to seconds', () => {
+      const manager = new YtDlpManager()
+      expect(manager.parseDurationString('1:08:59')).to.equal(4139)
+      expect(manager.parseDurationString('27:59')).to.equal(1679)
+      expect(manager.parseDurationString('45')).to.equal(45)
+      expect(manager.parseDurationString(null)).to.be.null
+      expect(manager.parseDurationString('invalid')).to.be.null
+    })
+
+    it('should parse relative date strings to timestamp', () => {
+      const manager = new YtDlpManager()
+      const now = Date.now()
+      const dayAgo = manager.parseRelativeDate('1 day ago')
+      expect(dayAgo).to.be.a('number')
+      expect(now - dayAgo).to.be.closeTo(24 * 3600 * 1000, 2000)
+
+      const weeksAgo = manager.parseRelativeDate('3 weeks ago')
+      expect(now - weeksAgo).to.be.closeTo(3 * 7 * 24 * 3600 * 1000, 2000)
+
+      expect(manager.parseRelativeDate(null)).to.be.null
+      expect(manager.parseRelativeDate('unknown')).to.be.null
+    })
+  })
+
+  describe('scrapeYouTubePlaylist', () => {
+    const sinon = require('sinon')
+    const axios = require('axios')
+
+    afterEach(() => {
+      sinon.restore()
+    })
+
+    it('should scrape playlist with lockupViewModel and return ordered episodes', async () => {
+      const manager = new YtDlpManager()
+      const mockInitialData = {
+        microformat: {
+          microformatDataRenderer: {
+            title: 'Test Podcast Show',
+            description: 'A great show about AI'
+          }
+        },
+        contents: {
+          twoColumnBrowseResultsRenderer: {
+            tabs: [
+              {
+                tabRenderer: {
+                  content: {
+                    sectionListRenderer: {
+                      contents: [
+                        {
+                          itemSectionRenderer: {
+                            contents: [
+                              {
+                                lockupViewModel: {
+                                  metadata: {
+                                    lockupMetadataViewModel: {
+                                      title: { content: 'Episode 1: Intro to AI' },
+                                      metadata: {
+                                        contentMetadataViewModel: {
+                                          metadataRows: [
+                                            { metadataParts: [{ text: { content: '1.2K views' } }, { text: { content: '2 years ago' } }] }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  contentImage: {
+                                    thumbnailViewModel: {
+                                      image: {
+                                        sources: [{ url: 'https://img.youtube.com/vi/vid123/hqdefault.jpg' }]
+                                      }
+                                    }
+                                  },
+                                  rendererContext: {
+                                    commandContext: {
+                                      onTap: {
+                                        innertubeCommand: {
+                                          watchEndpoint: { videoId: 'vid123' }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                lockupViewModel: {
+                                  metadata: {
+                                    lockupMetadataViewModel: {
+                                      title: { content: 'Episode 2: Deep Learning' },
+                                      metadata: {
+                                        contentMetadataViewModel: {
+                                          metadataRows: [
+                                            { metadataParts: [{ text: { content: '500 views' } }, { text: { content: '1 year ago' } }] }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  contentImage: {
+                                    thumbnailViewModel: {
+                                      image: {
+                                        sources: [{ url: 'https://img.youtube.com/vi/vid456/hqdefault.jpg' }]
+                                      }
+                                    }
+                                  },
+                                  rendererContext: {
+                                    commandContext: {
+                                      onTap: {
+                                        innertubeCommand: {
+                                          watchEndpoint: { videoId: 'vid456' }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+
+      const mockHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <script>var ytInitialData = ${JSON.stringify(mockInitialData)};</script>
+        </head>
+        </html>
+      `
+
+      sinon.stub(axios, 'get').resolves({ data: mockHtml })
+
+      const res = await manager.scrapeYouTubePlaylist('https://www.youtube.com/show/VLPLRDOtN2snjg4')
+      expect(res.metadata.title).to.equal('Test Podcast Show')
+      expect(res.metadata.description).to.equal('A great show about AI')
+      expect(res.episodes).to.have.length(2)
+      expect(res.numEpisodes).to.equal(2)
+
+      const ep1 = res.episodes[0]
+      expect(ep1.title).to.equal('Episode 1: Intro to AI')
+      expect(ep1.guid).to.equal('vid123')
+      expect(ep1.episode).to.equal('1')
+      expect(ep1.isVideo).to.be.true
+      expect(ep1.isYtDlp).to.be.true
+      expect(ep1.enclosure.url).to.equal('https://www.youtube.com/watch?v=vid123')
+
+      const ep2 = res.episodes[1]
+      expect(ep2.title).to.equal('Episode 2: Deep Learning')
+      expect(ep2.guid).to.equal('vid456')
+      expect(ep2.episode).to.equal('2')
+    })
+  })
 })
