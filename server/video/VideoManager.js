@@ -317,7 +317,9 @@ class VideoManager {
     const args = [
       '--dump-json',
       '--no-download',
-      '--flat-playlist'
+      '--flat-playlist',
+      '--extractor-args',
+      'youtubetab:approximate_date'
     ]
 
     if (limit != null && Number(limit) > 0) {
@@ -387,7 +389,6 @@ class VideoManager {
               entry.timestamp ||
               entry.published_timestamp ||
               entry.modified_timestamp ||
-              entry.epoch ||
               entry.start_time
             let { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
 

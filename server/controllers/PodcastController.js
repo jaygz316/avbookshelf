@@ -543,7 +543,6 @@ class PodcastController {
         videoInfo.timestamp ||
         videoInfo.published_timestamp ||
         videoInfo.modified_timestamp ||
-        videoInfo.epoch ||
         videoInfo.start_time
       let { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)
       if (!publishedAt || !pubDate) {

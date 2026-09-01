@@ -201,7 +201,6 @@ function parseInfoJsonMetadata(info) {
     data.timestamp ||
     data.published_timestamp ||
     data.modified_timestamp ||
-    data.epoch ||
     data.start_time
 
   const { publishedAt, pubDate } = parseDateToTimestampAndString(rawDate, rawTimestamp)

@@ -40,7 +40,7 @@
               <p v-if="episode.subtitle" class="mb-1 text-sm text-gray-300 line-clamp-2">{{ episode.subtitle }}</p>
               <div class="flex items-center space-x-2">
                 <!-- published -->
-                <p class="text-xs text-gray-300 w-40">Published {{ episode.publishedAt ? $dateDistanceFromNow(episode.publishedAt) : 'Unknown' }}</p>
+                <p class="text-xs text-gray-300 w-40">Published {{ episode.publishedAt ? $dateDistanceFromNow(episode.publishedAt) : (episode.pubDate ? episode.pubDate : 'Unknown') }}</p>
                 <!-- duration -->
                 <p v-if="episode.durationSeconds && !isNaN(episode.durationSeconds)" class="text-xs text-gray-300 min-w-28">{{ $strings.LabelDuration }}: {{ $elapsedPretty(episode.durationSeconds) }}</p>
                 <!-- size -->
@@ -165,10 +165,12 @@ export default {
     toggleSort() {
       this.sortDescending = !this.sortDescending
       this.episodesCleaned = this.episodesCleaned.toSorted((a, b) => {
+        const aDate = a.publishedAt || (a.pubDate ? new Date(a.pubDate).getTime() : 0)
+        const bDate = b.publishedAt || (b.pubDate ? new Date(b.pubDate).getTime() : 0)
         if (this.sortDescending) {
-          return a.publishedAt < b.publishedAt ? 1 : -1
+          return aDate < bDate ? 1 : -1
         }
-        return a.publishedAt > b.publishedAt ? 1 : -1
+        return aDate > bDate ? 1 : -1
       })
       this.selectedEpisodes = {}
       this.selectAll = false
@@ -294,14 +296,24 @@ export default {
       this.episodesCleaned = this.episodes
         .filter((ep) => ep.enclosure?.url)
         .map((_ep) => {
+          let pubAt = _ep.publishedAt
+          if (!pubAt && _ep.pubDate) {
+            const d = new Date(_ep.pubDate)
+            if (!isNaN(d.valueOf())) pubAt = d.valueOf()
+          }
           return {
             ..._ep,
+            publishedAt: pubAt,
             cleanUrl: this.getCleanEpisodeUrl(_ep.enclosure.url),
             isDownloading: this.getIsEpisodeDownloadingOrQueued(_ep),
             isDownloaded: this.getIsEpisodeDownloaded(_ep)
           }
         })
-      this.episodesCleaned.sort((a, b) => (a.publishedAt < b.publishedAt ? 1 : -1))
+      this.episodesCleaned.sort((a, b) => {
+        const aDate = a.publishedAt || (a.pubDate ? new Date(a.pubDate).getTime() : 0)
+        const bDate = b.publishedAt || (b.pubDate ? new Date(b.pubDate).getTime() : 0)
+        return aDate < bDate ? 1 : -1
+      })
       this.selectAll = false
       this.selectedEpisodes = {}
     },
