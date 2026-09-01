@@ -1,22 +1,28 @@
 const { extractEpisodeNumbers } = require('../../video/VideoEpisodeMatcher')
 
 /**
- * Robust date parser for dates from yt-dlp, RSS, tags, and APIs.
+ * Strict, robust date parser for dates from yt-dlp, RSS, tags, and APIs.
  * Supports timestamp (seconds or ms), YYYYMMDD string, ISO strings, RFC2822, YYYY-MM-DD, etc.
+ * Validates that resulting year is within a realistic modern era (1990 - 2040)
+ * to avoid misparsing episode numbers ("Episode 300", "#1", "2001") as ancient or arbitrary dates.
  *
  * @param {string|number} rawDate
  * @param {string|number} [rawTimestamp]
  * @returns {{ publishedAt: number|null, pubDate: string }}
  */
 function parseDateToTimestampAndString(rawDate, rawTimestamp = null) {
-  // If timestamp is provided (number or numeric string)
+  const MIN_YEAR = 1990
+  const MAX_YEAR = 2040
+  const MIN_UNIX_SEC = 631152000 // 1990-01-01T00:00:00Z
+
+  // 1. If timestamp is provided (number or numeric string)
   if (rawTimestamp != null && rawTimestamp !== '' && !isNaN(Number(rawTimestamp))) {
     const num = Number(rawTimestamp)
-    if (num > 0) {
+    if (num >= MIN_UNIX_SEC) {
       const tsMs = num > 1e11 ? num : num * 1000
       const d = new Date(tsMs)
-      if (!isNaN(d.valueOf())) {
-        const year = d.getUTCFullYear()
+      const year = d.getUTCFullYear()
+      if (!isNaN(d.valueOf()) && year >= MIN_YEAR && year <= MAX_YEAR) {
         const month = String(d.getUTCMonth() + 1).padStart(2, '0')
         const day = String(d.getUTCDate()).padStart(2, '0')
         return {
@@ -27,34 +33,41 @@ function parseDateToTimestampAndString(rawDate, rawTimestamp = null) {
     }
   }
 
-  // If rawDate is numeric or numeric string timestamp
+  // 2. If rawDate is numeric or numeric string
   if (rawDate != null && rawDate !== '' && !isNaN(Number(rawDate)) && typeof rawDate !== 'boolean') {
-    const num = Number(rawDate)
     const rawStr = String(rawDate).trim()
-    // If it's a 4-digit year (e.g. 2023)
-    if (rawStr.length === 4 && num >= 1900 && num <= 2100) {
-      const ts = Date.UTC(num, 0, 1)
+
+    // Exact 4-digit year (e.g. 2025)
+    if (/^(199\d|20[0-4]\d)$/.test(rawStr)) {
+      const year = parseInt(rawStr, 10)
+      const ts = Date.UTC(year, 0, 1)
       return {
         publishedAt: ts,
-        pubDate: `${num}-01-01`
+        pubDate: `${year}-01-01`
       }
     }
-    // If it's 8 digits YYYYMMDD as a number (e.g. 20230514)
+
+    // 8 digits YYYYMMDD as a number (e.g. 20230514)
     if (rawStr.length === 8 && /^\d{8}$/.test(rawStr)) {
       const year = parseInt(rawStr.slice(0, 4), 10)
       const month = parseInt(rawStr.slice(4, 6), 10)
       const day = parseInt(rawStr.slice(6, 8), 10)
-      const ts = Date.UTC(year, month - 1, day)
-      return {
-        publishedAt: ts,
-        pubDate: `${rawStr.slice(0, 4)}-${rawStr.slice(4, 6)}-${rawStr.slice(6, 8)}`
+      if (year >= MIN_YEAR && year <= MAX_YEAR && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        const ts = Date.UTC(year, month - 1, day)
+        return {
+          publishedAt: ts,
+          pubDate: `${rawStr.slice(0, 4)}-${rawStr.slice(4, 6)}-${rawStr.slice(6, 8)}`
+        }
       }
     }
-    if (num > 0) {
+
+    // Unix timestamp in seconds or ms
+    const num = Number(rawDate)
+    if (num >= MIN_UNIX_SEC) {
       const tsMs = num > 1e11 ? num : num * 1000
       const d = new Date(tsMs)
-      if (!isNaN(d.valueOf())) {
-        const year = d.getUTCFullYear()
+      const year = d.getUTCFullYear()
+      if (!isNaN(d.valueOf()) && year >= MIN_YEAR && year <= MAX_YEAR) {
         const month = String(d.getUTCMonth() + 1).padStart(2, '0')
         const day = String(d.getUTCDate()).padStart(2, '0')
         return {
@@ -65,29 +78,30 @@ function parseDateToTimestampAndString(rawDate, rawTimestamp = null) {
     }
   }
 
+  // 3. If rawDate is a string
   if (typeof rawDate === 'string' && rawDate.trim()) {
     const str = rawDate.trim()
+
+    // Exact 4-digit year format (e.g. "2025")
+    if (/^(199\d|20[0-4]\d)$/.test(str)) {
+      const year = parseInt(str, 10)
+      const ts = Date.UTC(year, 0, 1)
+      return {
+        publishedAt: ts,
+        pubDate: `${year}-01-01`
+      }
+    }
+
     // YYYYMMDD format (e.g. "20230514")
     if (/^\d{8}$/.test(str)) {
       const year = parseInt(str.slice(0, 4), 10)
       const month = parseInt(str.slice(4, 6), 10)
       const day = parseInt(str.slice(6, 8), 10)
-      const ts = Date.UTC(year, month - 1, day)
-      const pubDate = `${str.slice(0, 4)}-${str.slice(4, 6)}-${str.slice(6, 8)}`
-      return {
-        publishedAt: ts,
-        pubDate
-      }
-    }
-
-    // 4-digit year format (e.g. "2023")
-    if (/^\d{4}$/.test(str)) {
-      const year = parseInt(str, 10)
-      if (year >= 1900 && year <= 2100) {
-        const ts = Date.UTC(year, 0, 1)
+      if (year >= MIN_YEAR && year <= MAX_YEAR && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        const ts = Date.UTC(year, month - 1, day)
         return {
           publishedAt: ts,
-          pubDate: `${year}-01-01`
+          pubDate: `${str.slice(0, 4)}-${str.slice(4, 6)}-${str.slice(6, 8)}`
         }
       }
     }
@@ -98,12 +112,12 @@ function parseDateToTimestampAndString(rawDate, rawTimestamp = null) {
       const year = parseInt(ymdMatch[1], 10)
       const month = parseInt(ymdMatch[2], 10)
       const day = parseInt(ymdMatch[3], 10)
-      const hour = ymdMatch[4] ? parseInt(ymdMatch[4], 10) : 0
-      const min = ymdMatch[5] ? parseInt(ymdMatch[5], 10) : 0
-      const sec = ymdMatch[6] ? parseInt(ymdMatch[6], 10) : 0
-      const ts = Date.UTC(year, month - 1, day, hour, min, sec)
-      const d = new Date(ts)
-      if (!isNaN(d.valueOf())) {
+      if (year >= MIN_YEAR && year <= MAX_YEAR && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        const hour = ymdMatch[4] ? parseInt(ymdMatch[4], 10) : 0
+        const min = ymdMatch[5] ? parseInt(ymdMatch[5], 10) : 0
+        const sec = ymdMatch[6] ? parseInt(ymdMatch[6], 10) : 0
+        const ts = Date.UTC(year, month - 1, day, hour, min, sec)
+        const d = new Date(ts)
         const yStr = d.getUTCFullYear()
         const mStr = String(d.getUTCMonth() + 1).padStart(2, '0')
         const dStr = String(d.getUTCDate()).padStart(2, '0')
@@ -114,13 +128,27 @@ function parseDateToTimestampAndString(rawDate, rawTimestamp = null) {
       }
     }
 
-    // Embedded date pattern search in filename or title strings: e.g. "2023-05-14", "2023.05.14", "[20230514]"
-    const embeddedMatch = str.match(/(?:^|\D)(\d{4})[-_.](\d{2})[-_.](\d{2})(?:\D|$)/)
+    // RFC 2822 date or ISO string or Month Day, Year
+    if (/^(?:[A-Za-z]{3},\s+)?\d{1,2}\s+[A-Za-z]{3}\s+\d{4}/.test(str) || /^[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}/.test(str) || /^\d{4}-\d{2}-\d{2}T/.test(str)) {
+      const d = new Date(str)
+      const year = d.getUTCFullYear()
+      if (!isNaN(d.valueOf()) && year >= MIN_YEAR && year <= MAX_YEAR) {
+        const month = String(d.getUTCMonth() + 1).padStart(2, '0')
+        const day = String(d.getUTCDate()).padStart(2, '0')
+        return {
+          publishedAt: d.valueOf(),
+          pubDate: `${year}-${month}-${day}`
+        }
+      }
+    }
+
+    // Strict embedded date pattern search in filename or title strings: e.g. "2023-05-14", "2023.05.14"
+    const embeddedMatch = str.match(/(?:^|[\s_(\[-])(20\d{2})[-_./](0[1-9]|1[0-2])[-_./](0[1-9]|[12]\d|3[01])(?:[\s_)\]-]|$)/)
     if (embeddedMatch) {
       const year = parseInt(embeddedMatch[1], 10)
       const month = parseInt(embeddedMatch[2], 10)
       const day = parseInt(embeddedMatch[3], 10)
-      if (year >= 1970 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      if (year >= MIN_YEAR && year <= MAX_YEAR) {
         const ts = Date.UTC(year, month - 1, day)
         const d = new Date(ts)
         if (!isNaN(d.valueOf())) {
@@ -132,18 +160,6 @@ function parseDateToTimestampAndString(rawDate, rawTimestamp = null) {
             pubDate: `${yStr}-${mStr}-${dStr}`
           }
         }
-      }
-    }
-
-    // Standard Date parsing (YYYY-MM-DD, ISO 8601, RFC2822)
-    const d = new Date(str)
-    if (!isNaN(d.valueOf())) {
-      const year = d.getUTCFullYear()
-      const month = String(d.getUTCMonth() + 1).padStart(2, '0')
-      const day = String(d.getUTCDate()).padStart(2, '0')
-      return {
-        publishedAt: d.valueOf(),
-        pubDate: `${year}-${month}-${day}`
       }
     }
   }
