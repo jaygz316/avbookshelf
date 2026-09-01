@@ -591,9 +591,7 @@ export default {
               libraryItemId: this.libraryItemId,
               libraryId: this.libraryId,
               episodeId: episode.id,
-              title: episode.title,
-              subtitle: this.title,
-              caption: episode.publishedAt ? this.$getString('LabelPublishedDate', [this.$formatDate(episode.publishedAt, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
+              caption: (episode.publishedAt || episode.pubDate) ? this.$getString('LabelPublishedDate', [this.$formatDate(episode.publishedAt || episode.pubDate, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
               duration: episode.duration || episode.audioFile?.duration || episode.videoFile?.duration || null,
               coverPath: this.libraryItem.media.coverPath || null
             })

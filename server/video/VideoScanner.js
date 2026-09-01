@@ -16,6 +16,41 @@ class VideoScanner {
   constructor() {}
 
   /**
+   * Find companion .info.json or .json file for a given video file path
+   * @param {string} videoFilePath
+   * @returns {Promise<string|null>}
+   */
+  async findCompanionInfoJson(videoFilePath) {
+    if (!videoFilePath) return null
+    try {
+      const filenameNoExt = Path.parse(videoFilePath).name
+      const videoDir = Path.dirname(videoFilePath)
+      const filename = Path.basename(videoFilePath)
+
+      const candidateJsonPaths = [
+        Path.join(videoDir, `${filenameNoExt}.info.json`),
+        Path.join(videoDir, `${filename}.info.json`),
+        Path.join(videoDir, `${filenameNoExt}.json`),
+        Path.join(videoDir, `${filename}.json`)
+      ]
+
+      const ytIdMatch = filenameNoExt.match(/(?:^|[\[\s_-])([a-zA-Z0-9_-]{11})(?:[\]\s_.-]|$)/)
+      if (ytIdMatch) {
+        const ytId = ytIdMatch[1]
+        candidateJsonPaths.push(Path.join(videoDir, `${ytId}.info.json`))
+        candidateJsonPaths.push(Path.join(videoDir, `${ytId}.json`))
+      }
+
+      for (const candPath of candidateJsonPaths) {
+        if (await fsExtra.pathExists(candPath)) {
+          return candPath
+        }
+      }
+    } catch (_) {}
+    return null
+  }
+
+  /**
    * Scan a video library file and return VideoFile and probe data
    * @param {import('../objects/files/LibraryFile')} libraryFile
    * @returns {Promise<{videoFile: VideoFile, probeData: Object, infoJson: Object|null}|null>}
@@ -40,30 +75,7 @@ class VideoScanner {
       const filenameNoExt = libraryFile.metadata.filenameNoExt || Path.parse(libraryFile.metadata.path).name
       const videoDir = Path.dirname(libraryFile.metadata.path)
       const filename = libraryFile.metadata.filename || Path.basename(libraryFile.metadata.path)
-
-      // Look for companion .info.json created by yt-dlp or other tools
-      const candidateJsonPaths = [
-        Path.join(videoDir, `${filenameNoExt}.info.json`),
-        Path.join(videoDir, `${filename}.info.json`),
-        Path.join(videoDir, `${filenameNoExt}.json`),
-        Path.join(videoDir, `${filename}.json`)
-      ]
-
-      // Check if filename contains a YouTube video ID (e.g. 11 characters like [dQw4w9WgXcQ])
-      const ytIdMatch = filenameNoExt.match(/(?:^|[\[\s_-])([a-zA-Z0-9_-]{11})(?:[\]\s_.-]|$)/)
-      if (ytIdMatch) {
-        const ytId = ytIdMatch[1]
-        candidateJsonPaths.push(Path.join(videoDir, `${ytId}.info.json`))
-        candidateJsonPaths.push(Path.join(videoDir, `${ytId}.json`))
-      }
-
-      let infoJsonPathToUse = null
-      for (const candPath of candidateJsonPaths) {
-        if (await fsExtra.pathExists(candPath)) {
-          infoJsonPathToUse = candPath
-          break
-        }
-      }
+      const infoJsonPathToUse = await this.findCompanionInfoJson(libraryFile.metadata.path)
 
       if (infoJsonPathToUse) {
         try {

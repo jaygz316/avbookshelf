@@ -337,8 +337,7 @@ export default {
         libraryId: this.libraryItem.libraryId,
         episodeId: episode.id,
         title: episode.title,
-        subtitle: this.mediaMetadata.title,
-        caption: episode.publishedAt ? this.$getString('LabelPublishedDate', [this.$formatDate(episode.publishedAt, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
+        caption: (episode.publishedAt || episode.pubDate) ? this.$getString('LabelPublishedDate', [this.$formatDate(episode.publishedAt || episode.pubDate, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
         duration: episode.duration || episode.audioFile?.duration || episode.videoFile?.duration || null,
         coverPath: this.media.coverPath || null
       }
@@ -413,9 +412,7 @@ export default {
             libraryItemId: this.libraryItem.id,
             libraryId: this.libraryItem.libraryId,
             episodeId: _episode.id,
-            title: _episode.title,
-            subtitle: this.mediaMetadata.title,
-            caption: _episode.publishedAt ? this.$getString('LabelPublishedDate', [this.$formatDate(_episode.publishedAt, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
+            caption: (_episode.publishedAt || _episode.pubDate) ? this.$getString('LabelPublishedDate', [this.$formatDate(_episode.publishedAt || _episode.pubDate, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
             duration: _episode.duration || _episode.audioFile?.duration || _episode.videoFile?.duration || null,
             coverPath: this.media.coverPath || null
           })

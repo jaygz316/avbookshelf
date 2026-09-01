@@ -436,7 +436,7 @@ class PodcastScanner {
     // Ensure all existing episodes have publishedAt and pubDate populated
     for (const ep of existingPodcastEpisodes) {
       let epChanged = false
-      const { parseDateToTimestampAndString } = require('../utils/parsers/parseInfoJsonMetadata')
+      const { parseDateToTimestampAndString, parseInfoJsonMetadata } = require('../utils/parsers/parseInfoJsonMetadata')
       if (!ep.publishedAt && ep.pubDate) {
         const parsed = parseDateToTimestampAndString(ep.pubDate)
         if (parsed.publishedAt) {
@@ -452,17 +452,48 @@ class PodcastScanner {
           epChanged = true
         }
       }
-      if (!ep.publishedAt && !ep.pubDate) {
+
+      if (!ep.publishedAt || !ep.pubDate) {
+        const mediaFile = ep.videoFile || ep.audioFile
+        const mediaPath = mediaFile?.metadata?.path
+          ? (Path.isAbsolute(mediaFile.metadata.path) ? mediaFile.metadata.path : Path.join(libraryItemData.path, mediaFile.metadata.path))
+          : null
+        if (mediaPath) {
+          const companionPath = await videoScanner.findCompanionInfoJson(mediaPath)
+          if (companionPath) {
+            try {
+              const infoJsonRaw = await fsExtra.readJson(companionPath)
+              const parsedInfo = parseInfoJsonMetadata(infoJsonRaw)
+              if (parsedInfo?.publishedAt && !ep.publishedAt) {
+                ep.publishedAt = parsedInfo.publishedAt
+                ep.changed('publishedAt', true)
+                epChanged = true
+              }
+              if (parsedInfo?.pubDate && !ep.pubDate) {
+                ep.pubDate = parsedInfo.pubDate
+                ep.changed('pubDate', true)
+                epChanged = true
+              }
+            } catch (_) {}
+          }
+        }
+      }
+
+      if (!ep.publishedAt || !ep.pubDate) {
         const mediaFile = ep.videoFile || ep.audioFile
         const tagDate = mediaFile?.metaTags?.tagDate
         const filename = mediaFile?.metadata?.filenameNoExt || mediaFile?.metadata?.filename
         const parsedTag = tagDate ? parseDateToTimestampAndString(tagDate) : null
         const parsedFilename = filename ? parseDateToTimestampAndString(filename) : null
-        const candidate = (parsedTag?.publishedAt ? parsedTag : null) || (parsedFilename?.publishedAt ? parsedFilename : null)
-        if (candidate?.publishedAt) {
+        const parsedTitle = ep.title ? parseDateToTimestampAndString(ep.title) : null
+        const candidate = (parsedTag?.publishedAt ? parsedTag : null) || (parsedFilename?.publishedAt ? parsedFilename : null) || (parsedTitle?.publishedAt ? parsedTitle : null)
+        if (candidate?.publishedAt && !ep.publishedAt) {
           ep.publishedAt = candidate.publishedAt
-          ep.pubDate = candidate.pubDate
           ep.changed('publishedAt', true)
+          epChanged = true
+        }
+        if (candidate?.pubDate && !ep.pubDate) {
+          ep.pubDate = candidate.pubDate
           ep.changed('pubDate', true)
           epChanged = true
         }

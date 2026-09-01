@@ -151,9 +151,7 @@ export default {
           libraryItemId: libraryItem.id,
           libraryId: libraryItem.libraryId,
           episodeId: episode.id,
-          title: episode.title,
-          subtitle: libraryItem.media.metadata.title,
-          caption: episode.publishedAt ? this.$getString('LabelPublishedDate', [this.$formatDate(episode.publishedAt, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
+          caption: (episode.publishedAt || episode.pubDate) ? this.$getString('LabelPublishedDate', [this.$formatDate(episode.publishedAt || episode.pubDate, this.dateFormat)]) : this.$strings.LabelUnknownPublishDate,
           duration: episode.duration || episode.audioFile?.duration || episode.videoFile?.duration || null,
           coverPath: libraryItem.media.coverPath || null
         }
