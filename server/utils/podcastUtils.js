@@ -461,6 +461,28 @@ module.exports.parsePodcastRssFeedXml = async (xml, excludeEpisodeMetadata = fal
 module.exports.getPodcastFeed = (feedUrl, excludeEpisodeMetadata = false) => {
   Logger.debug(`[podcastUtils] getPodcastFeed for "${feedUrl}"`)
 
+  const isYouTube = typeof feedUrl === 'string' && (feedUrl.includes('youtube.com/') || feedUrl.includes('youtu.be/'))
+  if (isYouTube) {
+    const cleanUrl = feedUrl.split('?')[0].toLowerCase()
+    if (!cleanUrl.endsWith('.xml') && !cleanUrl.endsWith('.rss')) {
+      const VideoManager = require('../video/VideoManager')
+      const videoManager = global.ytDlpManager || new VideoManager()
+      return videoManager
+        .getChannelFeed(feedUrl)
+        .then((feedData) => {
+          if (!feedData) return null
+          return {
+            metadata: feedData.metadata,
+            episodes: feedData.episodes || []
+          }
+        })
+        .catch((err) => {
+          Logger.error(`[podcastUtils] getPodcastFeed YouTube handler failed for "${feedUrl}": ${err.message}`)
+          return null
+        })
+    }
+  }
+
   let userAgent = 'audiobookshelf (+https://audiobookshelf.org; like iTMS)'
   // Workaround for CBC RSS feeds rejecting our user agent string
   // See: https://github.com/advplyr/audiobookshelf/issues/3322

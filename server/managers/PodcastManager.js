@@ -128,7 +128,11 @@ class PodcastManager {
         await fs.mkdir(this.currentDownload.libraryItem.path)
       }
 
-      const isYtDlp = this.currentDownload.rssPodcastEpisode?.isYtDlp || this.currentDownload.libraryItem?.media?.feedType === 'youtube' || this.currentDownload.libraryItem?.media?.feedType === 'ytdlp'
+      const isYtDlp =
+        this.currentDownload.rssPodcastEpisode?.isYtDlp ||
+        (this.currentDownload.url && (this.currentDownload.url.includes('youtube.com/') || this.currentDownload.url.includes('youtu.be/'))) ||
+        this.currentDownload.libraryItem?.media?.feedType === 'youtube' ||
+        this.currentDownload.libraryItem?.media?.feedType === 'ytdlp'
 
       const onProgress = (progressInfo) => {
         this.currentDownload.setProgress(progressInfo.percent, progressInfo.speed, progressInfo.eta)

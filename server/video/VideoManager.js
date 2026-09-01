@@ -437,61 +437,449 @@ class VideoManager {
    * @param {string} url
    * @param {number|null} [limit=null]
    * @returns {Promise<{metadata: Object, episodes: Array}>}
+  /**
+   * Helper to normalize various YouTube URLs (shows, watch with playlist, channel subpaths)
+   * @param {string} url
+   * @returns {string}
    */
-  async getChannelFeed(url, limit = null) {
-    if (!this.isAvailable) throw new Error('yt-dlp is not available')
+  normalizeYouTubeUrl(url) {
+    if (!url || typeof url !== 'string') return url
 
-    let fetchUrl = url
-    if (fetchUrl.includes('youtube.com/') || fetchUrl.includes('youtu.be/')) {
-      const cleanUrl = fetchUrl.split('?')[0].replace(/\/+$/, '')
-      if (
-        !cleanUrl.endsWith('/videos') &&
-        !cleanUrl.endsWith('/podcasts') &&
-        !cleanUrl.endsWith('/streams') &&
-        !cleanUrl.endsWith('/releases') &&
-        !cleanUrl.includes('/playlist') &&
-        !fetchUrl.includes('list=') &&
-        !cleanUrl.includes('/watch') &&
-        !cleanUrl.endsWith('.xml')
-      ) {
-        fetchUrl = `${cleanUrl}/videos`
+    // 1. YouTube show URL: https://www.youtube.com/show/VLPL... or /show/PL...
+    const showMatch = url.match(/youtube\.com\/show\/(?:VL)?([a-zA-Z0-9_-]+)/i)
+    if (showMatch) {
+      let playlistId = showMatch[1]
+      if (playlistId.startsWith('VL')) playlistId = playlistId.substring(2)
+      return `https://www.youtube.com/playlist?list=${playlistId}`
+    }
+
+    // 2. Watch URL with playlist list param: https://www.youtube.com/watch?v=...&list=PL...
+    const listMatch = url.match(/[?&]list=(?:VL)?([a-zA-Z0-9_-]+)/i)
+    if (listMatch && !url.includes('/playlist')) {
+      let playlistId = listMatch[1]
+      if (playlistId.startsWith('VL')) playlistId = playlistId.substring(2)
+      return `https://www.youtube.com/playlist?list=${playlistId}`
+    }
+
+    // 3. Clean up playlist URL if it has VL prefix in list parameter
+    if (url.includes('/playlist')) {
+      const plMatch = url.match(/[?&]list=(?:VL)?([a-zA-Z0-9_-]+)/i)
+      if (plMatch) {
+        let playlistId = plMatch[1]
+        if (playlistId.startsWith('VL')) playlistId = playlistId.substring(2)
+        return `https://www.youtube.com/playlist?list=${playlistId}`
+      }
+      return url
+    }
+
+    // 4. Channel URL without subpath
+    const cleanUrl = url.split('?')[0].replace(/\/+$/, '')
+    if (
+      !cleanUrl.endsWith('/videos') &&
+      !cleanUrl.endsWith('/podcasts') &&
+      !cleanUrl.endsWith('/streams') &&
+      !cleanUrl.endsWith('/releases') &&
+      !cleanUrl.includes('/playlist') &&
+      !cleanUrl.includes('/show/') &&
+      !url.includes('list=') &&
+      !cleanUrl.includes('/watch') &&
+      !cleanUrl.endsWith('.xml')
+    ) {
+      return `${cleanUrl}/videos`
+    }
+
+    return url
+  }
+
+  /**
+   * Parse duration string (e.g. "1:08:59" or "45:30") to seconds
+   * @param {string} str
+   * @returns {number|null}
+   */
+  parseDurationString(str) {
+    if (!str || typeof str !== 'string') return null
+    const parts = str.split(':').map(Number)
+    if (parts.some(isNaN)) return null
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    if (parts.length === 2) return parts[0] * 60 + parts[1]
+    if (parts.length === 1) return parts[0]
+    return null
+  }
+
+  /**
+   * Parse relative time string (e.g. "3 years ago", "6 days ago") to timestamp
+   * @param {string} text
+   * @returns {number|null}
+   */
+  parseRelativeDate(text) {
+    if (!text || typeof text !== 'string') return null
+    const now = Date.now()
+    const match = text.match(/(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago/i)
+    if (!match) return null
+    const count = parseInt(match[1], 10)
+    const unit = match[2].toLowerCase()
+    const msMap = {
+      second: 1000,
+      minute: 60 * 1000,
+      hour: 3600 * 1000,
+      day: 24 * 3600 * 1000,
+      week: 7 * 24 * 3600 * 1000,
+      month: 30 * 24 * 3600 * 1000,
+      year: 365 * 24 * 3600 * 1000
+    }
+    return now - count * (msMap[unit] || 0)
+  }
+
+  /**
+   * Direct scraper for YouTube playlist and channel feeds using web responses and innertube continuations
+   * @param {string} url
+   * @param {number|null} [limit=null]
+   * @returns {Promise<{metadata: Object, episodes: Array, numEpisodes: number}>}
+   */
+  async scrapeYouTubePlaylist(url, limit = null) {
+    const fetchUrl = this.normalizeYouTubeUrl(url)
+    Logger.debug(`[VideoManager] scrapeYouTubePlaylist fetching "${fetchUrl}"`)
+
+    const res = await axios.get(fetchUrl, {
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+      }
+    })
+
+    const html = typeof res.data === 'string' ? res.data : res.data.toString('utf8')
+    const keyMatch = html.match(/"INNERTUBE_API_KEY":"([^"]+)"/)
+    const clientVerMatch = html.match(/"INNERTUBE_CLIENT_VERSION":"([^"]+)"/)
+    const apiKey = keyMatch ? keyMatch[1] : null
+    const clientVersion = clientVerMatch ? clientVerMatch[1] : '2.20260831.09.00'
+
+    const m = html.match(/var ytInitialData = ({.*?});<\/script>/) || html.match(/ytInitialData\s*=\s*({.*?});/)
+    if (!m) {
+      throw new Error(`Failed to extract ytInitialData from YouTube page "${fetchUrl}"`)
+    }
+
+    let initialData
+    try {
+      initialData = JSON.parse(m[1])
+    } catch (e) {
+      throw new Error(`Failed to parse ytInitialData JSON: ${e.message}`)
+    }
+
+    const findAll = (obj, key) => {
+      const out = []
+      const recurse = (o) => {
+        if (!o || typeof o !== 'object') return
+        if (Array.isArray(o)) {
+          for (const item of o) recurse(item)
+        } else {
+          for (const k of Object.keys(o)) {
+            if (k === key) out.push(o[k])
+            recurse(o[k])
+          }
+        }
+      }
+      recurse(obj)
+      return out
+    }
+
+    const findToken = (obj) => {
+      if (!obj || typeof obj !== 'object') return null
+      if (obj.continuationCommand?.token) return obj.continuationCommand.token
+      if (obj.continuationEndpoint?.continuationCommand?.token) return obj.continuationEndpoint.continuationCommand.token
+      if (Array.isArray(obj)) {
+        for (const item of obj) {
+          const t = findToken(item)
+          if (t) return t
+        }
+      } else {
+        for (const k of Object.keys(obj)) {
+          const t = findToken(obj[k])
+          if (t) return t
+        }
+      }
+      return null
+    }
+
+    // Extract metadata
+    let title = 'YouTube Podcast'
+    let author = ''
+    let description = ''
+    let image = ''
+    let channelId = null
+    let playlistId = null
+
+    const plIdMatch = fetchUrl.match(/[?&]list=([a-zA-Z0-9_-]+)/)
+    if (plIdMatch) playlistId = plIdMatch[1]
+
+    const microformat = initialData.microformat?.microformatDataRenderer
+    if (microformat) {
+      if (microformat.title) title = microformat.title
+      if (microformat.description) description = microformat.description
+      if (microformat.thumbnail?.thumbnails?.length) {
+        image = microformat.thumbnail.thumbnails[microformat.thumbnail.thumbnails.length - 1].url
       }
     }
+
+    const sidebars = findAll(initialData, 'playlistSidebarPrimaryInfoRenderer')
+    if (sidebars.length) {
+      const sb = sidebars[0]
+      if (sb.title?.runs?.[0]?.text) title = sb.title.runs[0].text
+    }
+    const secondary = findAll(initialData, 'playlistSidebarSecondaryInfoRenderer')
+    if (secondary.length && secondary[0].videoOwnerRenderer) {
+      const owner = secondary[0].videoOwnerRenderer
+      author = owner.title?.runs?.[0]?.text || ''
+      channelId = owner.navigationEndpoint?.browseEndpoint?.browseId || null
+    }
+
+    const metadata = {
+      title,
+      author,
+      description,
+      descriptionPlain: description,
+      image,
+      feedUrl: url,
+      feedType: 'youtube',
+      type: 'episodic'
+    }
+
+    const parseEntriesFromObj = (obj) => {
+      const entries = []
+      const pvrList = findAll(obj, 'playlistVideoRenderer')
+      for (const v of pvrList) {
+        if (!v.videoId) continue
+        const epTitle = v.title?.runs?.[0]?.text || v.title?.simpleText || 'Untitled'
+        const durationStr = v.lengthText?.simpleText || ''
+        const durationSeconds = this.parseDurationString(durationStr) || (v.lengthSeconds ? parseInt(v.lengthSeconds, 10) : null)
+        const thumbs = v.thumbnail?.thumbnails || []
+        const thumb = thumbs.length ? thumbs[thumbs.length - 1].url : null
+        const indexStr = v.index?.simpleText || null
+
+        entries.push({
+          id: v.videoId,
+          title: epTitle,
+          duration: durationStr,
+          durationSeconds,
+          thumbnail: thumb,
+          index: indexStr
+        })
+      }
+
+      const lockups = findAll(obj, 'lockupViewModel')
+      for (const lk of lockups) {
+        const epTitle = lk.metadata?.lockupMetadataViewModel?.title?.content || 'Untitled'
+        const findId = (o) => {
+          if (!o || typeof o !== 'object') return null
+          if (o.videoId) return o.videoId
+          if (Array.isArray(o)) {
+            for (const it of o) {
+              const found = findId(it)
+              if (found) return found
+            }
+          } else {
+            for (const k of Object.keys(o)) {
+              const found = findId(o[k])
+              if (found) return found
+            }
+          }
+          return null
+        }
+        const videoId = findId(lk)
+        if (!videoId) continue
+
+        let relTimeText = null
+        const metadataRows = lk.metadata?.lockupMetadataViewModel?.metadata?.contentMetadataViewModel?.metadataRows || []
+        for (const row of metadataRows) {
+          for (const part of row.metadataParts || []) {
+            const content = part.text?.content || ''
+            if (/ago/i.test(content)) relTimeText = content
+          }
+        }
+
+        const imageSources = lk.contentImage?.thumbnailViewModel?.image?.sources || []
+        const thumb = imageSources.length ? imageSources[imageSources.length - 1].url : null
+
+        entries.push({
+          id: videoId,
+          title: epTitle,
+          thumbnail: thumb,
+          relTimeText
+        })
+      }
+      return entries
+    }
+
+    let allEntries = parseEntriesFromObj(initialData)
+    let nextToken = findToken(initialData)
+    let pageCount = 1
+
+    const maxLimit = limit != null && Number(limit) > 0 ? Number(limit) : Infinity
+
+    while (nextToken && apiKey && allEntries.length < maxLimit && pageCount < 20) {
+      pageCount++
+      try {
+        const contRes = await axios.post(
+          `https://www.youtube.com/youtubei/v1/browse?key=${apiKey}`,
+          {
+            continuation: nextToken,
+            context: { client: { clientName: 'WEB', clientVersion } }
+          },
+          {
+            timeout: 8000,
+            headers: {
+              'Content-Type': 'application/json',
+              'User-Agent': 'Mozilla/5.0'
+            }
+          }
+        )
+        const contData = contRes.data
+        const pageEntries = parseEntriesFromObj(contData)
+        if (!pageEntries.length) break
+        allEntries = allEntries.concat(pageEntries)
+        nextToken = findToken(contData)
+      } catch (contErr) {
+        Logger.debug(`[VideoManager] scrapeYouTubePlaylist continuation failed: ${contErr.message}`)
+        break
+      }
+    }
+
+    if (maxLimit < Infinity) {
+      allEntries = allEntries.slice(0, maxLimit)
+    }
+
+    // Deduplicate by video ID
+    const seenIds = new Set()
+    allEntries = allEntries.filter((e) => {
+      if (seenIds.has(e.id)) return false
+      seenIds.add(e.id)
+      return true
+    })
+
+    const dateMap = await this.fetchYouTubeFeedDates(channelId, playlistId).catch(() => ({}))
+
+    const episodes = allEntries.map((entry, index) => {
+      const videoUrl = `https://www.youtube.com/watch?v=${entry.id}`
+      let publishedAt = null
+      let pubDate = null
+
+      if (dateMap[entry.id]) {
+        publishedAt = dateMap[entry.id].publishedAt
+        pubDate = dateMap[entry.id].pubDate
+      }
+
+      if (!publishedAt && entry.relTimeText) {
+        const relTimestamp = this.parseRelativeDate(entry.relTimeText)
+        if (relTimestamp) {
+          const parsed = parseDateToTimestampAndString(null, Math.floor(relTimestamp / 1000))
+          publishedAt = parsed.publishedAt
+          pubDate = parsed.pubDate
+        }
+      }
+
+      if (!publishedAt) {
+        const parsedFallback = parseDateToTimestampAndString(entry.title || '')
+        if (parsedFallback.publishedAt) {
+          publishedAt = parsedFallback.publishedAt
+          pubDate = parsedFallback.pubDate
+        }
+      }
+
+      const extracted = extractEpisodeNumbers(entry.title || '')
+      const episodeNum = extracted.episode || entry.index || String(index + 1)
+      const season = extracted.season || ''
+
+      return {
+        title: entry.title || 'Untitled',
+        subtitle: author || metadata.author || '',
+        description: '',
+        descriptionPlain: '',
+        pubDate: pubDate || '',
+        episodeType: 'full',
+        season,
+        episode: episodeNum,
+        author: author || metadata.author || '',
+        duration: entry.duration || '',
+        durationSeconds: entry.durationSeconds || null,
+        explicit: '',
+        publishedAt,
+        enclosure: {
+          url: videoUrl,
+          type: 'video/mp4'
+        },
+        guid: entry.id,
+        isVideo: true,
+        isYtDlp: true,
+        thumbnail: entry.thumbnail,
+        chaptersUrl: null,
+        chaptersType: null,
+        chapters: [],
+        extraData: {
+          guid: entry.id,
+          webpageUrl: videoUrl,
+          uploader: author || '',
+          channel: author || ''
+        }
+      }
+    })
+
+    return { metadata, episodes, numEpisodes: episodes.length }
+  }
+
+  /**
+   * Get channel/playlist entries as pseudo-RSS episodes
+   * @param {string} url
+   * @param {number|null} [limit=null]
+   * @returns {Promise<{metadata: Object, episodes: Array, numEpisodes: number}>}
+   */
+  async getChannelFeed(url, limit = null) {
+    const fetchUrl = this.normalizeYouTubeUrl(url)
 
     let entries = null
 
-    // Strategy 1: Normalized fetchUrl with youtubetab:approximate_date
-    try {
-      const args1 = ['--dump-json', '--no-download', '--flat-playlist', '--extractor-args', 'youtubetab:approximate_date']
-      if (limit != null && Number(limit) > 0) args1.push('--playlist-end', String(limit))
-      args1.push(fetchUrl)
-      entries = await this.execYtDlp(args1)
-    } catch (err1) {
-      Logger.debug(`[VideoManager] getChannelFeed strategy 1 failed for "${fetchUrl}": ${err1.message}`)
-    }
-
-    // Strategy 2: Original URL with youtubetab:approximate_date (if fetchUrl was different)
-    if (!entries?.length && fetchUrl !== url) {
+    if (this.isAvailable) {
+      // Strategy 1: Normalized fetchUrl with youtubetab:approximate_date
       try {
-        const args2 = ['--dump-json', '--no-download', '--flat-playlist', '--extractor-args', 'youtubetab:approximate_date']
-        if (limit != null && Number(limit) > 0) args2.push('--playlist-end', String(limit))
-        args2.push(url)
-        entries = await this.execYtDlp(args2)
-      } catch (err2) {
-        Logger.debug(`[VideoManager] getChannelFeed strategy 2 failed for "${url}": ${err2.message}`)
+        const args1 = ['--dump-json', '--no-download', '--flat-playlist', '--extractor-args', 'youtubetab:approximate_date']
+        if (limit != null && Number(limit) > 0) args1.push('--playlist-end', String(limit))
+        args1.push(fetchUrl)
+        entries = await this.execYtDlp(args1)
+      } catch (err1) {
+        Logger.debug(`[VideoManager] getChannelFeed strategy 1 failed for "${fetchUrl}": ${err1.message}`)
+      }
+
+      // Strategy 2: Original URL with youtubetab:approximate_date (if fetchUrl was different)
+      if (!entries?.length && fetchUrl !== url) {
+        try {
+          const args2 = ['--dump-json', '--no-download', '--flat-playlist', '--extractor-args', 'youtubetab:approximate_date']
+          if (limit != null && Number(limit) > 0) args2.push('--playlist-end', String(limit))
+          args2.push(url)
+          entries = await this.execYtDlp(args2)
+        } catch (err2) {
+          Logger.debug(`[VideoManager] getChannelFeed strategy 2 failed for "${url}": ${err2.message}`)
+        }
+      }
+
+      // Strategy 3: Original URL without extractor-args
+      if (!entries?.length) {
+        try {
+          const args3 = ['--dump-json', '--no-download', '--flat-playlist']
+          if (limit != null && Number(limit) > 0) args3.push('--playlist-end', String(limit))
+          args3.push(url)
+          entries = await this.execYtDlp(args3)
+        } catch (err3) {
+          Logger.debug(`[VideoManager] getChannelFeed yt-dlp strategies failed for "${url}": ${err3.message}`)
+        }
       }
     }
 
-    // Strategy 3: Original URL without extractor-args
+    // If yt-dlp is not available or failed, fallback to native direct playlist scraping
     if (!entries?.length) {
       try {
-        const args3 = ['--dump-json', '--no-download', '--flat-playlist']
-        if (limit != null && Number(limit) > 0) args3.push('--playlist-end', String(limit))
-        args3.push(url)
-        entries = await this.execYtDlp(args3)
-      } catch (err3) {
-        Logger.error(`[VideoManager] getChannelFeed all strategies failed for "${url}": ${err3.message}`)
-        throw err3
+        return await this.scrapeYouTubePlaylist(url, limit)
+      } catch (scrapeErr) {
+        Logger.error(`[VideoManager] scrapeYouTubePlaylist failed for "${url}": ${scrapeErr.message}`)
+        throw scrapeErr
       }
     }
 
@@ -513,7 +901,7 @@ class VideoManager {
     const playlistId = firstEntry.playlist_id && !firstEntry.playlist_id.startsWith('UC') ? firstEntry.playlist_id : null
     const dateMap = await this.fetchYouTubeFeedDates(channelId, playlistId).catch(() => ({}))
 
-    const episodes = entries.map((entry) => {
+    const episodes = entries.map((entry, index) => {
       const videoUrl = entry.url || (entry.id ? `https://www.youtube.com/watch?v=${entry.id}` : url)
       const rawDate =
         entry.release_date ||
@@ -585,7 +973,7 @@ class VideoManager {
         pubDate,
         episodeType: 'full',
         season: season || extracted.season || '',
-        episode: episode || extracted.episode || episodeFromPlaylist || '',
+        episode: episode || extracted.episode || episodeFromPlaylist || String(index + 1),
         author,
         duration: entry.duration ? String(entry.duration) : '',
         durationSeconds: entry.duration ? Number(entry.duration) : null,
@@ -625,7 +1013,7 @@ class VideoManager {
     const missingDateIds = episodes
       .filter((ep) => !ep.publishedAt && ep.guid && ep.guid !== url)
       .map((ep) => ep.guid)
-    if (missingDateIds.length > 0) {
+    if (missingDateIds.length > 0 && this.isAvailable) {
       Logger.info(`[VideoManager] Fetching accurate dates for ${missingDateIds.length} videos missing publishedAt`)
       const dlpDateMap = await this.fetchVideoDatesViaDlp(missingDateIds).catch((err) => {
         Logger.debug(`[VideoManager] fetchVideoDatesViaDlp failed: ${err.message}`)
