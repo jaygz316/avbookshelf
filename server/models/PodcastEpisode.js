@@ -76,6 +76,7 @@ class PodcastEpisode extends Model {
     const episodeType = rssPodcastEpisode?.episodeType || infoJson?.episodeType || 'full'
     const title = rssPodcastEpisode?.title || infoJson?.title || 'Untitled'
     const subtitle = rssPodcastEpisode?.subtitle || infoJson?.subtitle || null
+    const description = rssPodcastEpisode?.description || infoJson?.description || ''
     let pubDate = rssPodcastEpisode?.pubDate || infoJson?.pubDate || null
     let publishedAt = rssPodcastEpisode?.publishedAt || infoJson?.publishedAt || null
 
