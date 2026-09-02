@@ -12,6 +12,24 @@
   </p>
 </div>
 
+# AVBookshelf
+
+AVBookshelf is a fork of [Audiobookshelf](https://github.com/advplyr/audiobookshelf) that adds native support for video podcasts and YouTube channels.
+
+## Why this fork exists
+
+Upstream Audiobookshelf focuses on audiobooks and audio podcasts. However, many modern podcasts publish video episodes, and many episodic shows exist exclusively on YouTube. AVBookshelf extends Audiobookshelf with dedicated video media support so you can manage, download, stream, and sync progress for video content right alongside your audio library.
+
+Key capabilities added in this fork:
+
+- **Video podcast streaming.** Stream video episodes (.mp4, .mkv, .webm) in the web client with custom playback controls, floating mini-player, and picture-in-picture support.
+- **YouTube subscriptions.** Subscribe directly to YouTube channels or show playlists as podcasts using yt-dlp and YouTube Atom feeds.
+- **Automated video downloads.** Download new video episodes via yt-dlp with companion thumbnail extraction, metadata parsing, and configurable download speed limits.
+- **Feed and episode matching.** Match video files and YouTube downloads against official podcast feeds (via iTunes and RSS) to reconcile episode numbers, release dates, and titles.
+- **Isolated architecture.** All video functionality is isolated in dedicated delegates (`server/video/` and `client/video/`), keeping merges with upstream Audiobookshelf clean while preserving all core audiobook and audio podcast features.
+
+---
+
 ## ⚠️ Frontend pull requests are not being reviewed or merged for the existing Vue frontend. The frontend is currently being rewritten and migrated to React and should be available soon.
 
 # About
