@@ -54,6 +54,7 @@ describe('YtDlpManager', () => {
 
     afterEach(() => {
       sinon.restore()
+      global.ServerSettings = null
     })
 
     it('should pass correct format string, --embed-metadata, and --embed-chapters to yt-dlp args', async () => {
@@ -155,6 +156,205 @@ describe('YtDlpManager', () => {
       expect(progressUpdates).to.have.length(2)
       expect(progressUpdates[0]).to.deep.equal({ percent: 33.3, speed: '3.20MiB/s', eta: '00:20' })
       expect(progressUpdates[1]).to.deep.equal({ percent: null, speed: '890.98KiB/s', eta: null })
+    })
+
+    it('should dynamically restart active download with new speed limit when applySpeedLimit is called', async () => {
+      const { EventEmitter } = require('events')
+      const manager = new YtDlpManager()
+      manager.ytDlpPath = '/usr/bin/yt-dlp'
+      manager.isAvailable = true
+
+      const spawnedProcesses = []
+      const capturedArgs = []
+      let killedSignals = []
+
+      sinon.stub(childProcess, 'spawn').callsFake((path, args) => {
+        capturedArgs.push(args)
+        const proc = new EventEmitter()
+        proc.stdout = new EventEmitter()
+        proc.stderr = new EventEmitter()
+        proc.kill = sinon.spy((sig) => {
+          killedSignals.push(sig)
+          setImmediate(() => {
+            proc.emit('close', 1, sig)
+          })
+        })
+        spawnedProcesses.push(proc)
+        return proc
+      })
+
+      const progressUpdates = []
+      const downloadPromise = manager.downloadVideo('https://youtube.com/watch?v=active123', '/tmp/out', 'active_ep', 'best_compatible', (info) => {
+        progressUpdates.push(info)
+      })
+
+      expect(spawnedProcesses).to.have.length(1)
+      expect(capturedArgs[0]).to.not.include('--limit-rate')
+      expect(manager.activeDownloads.size).to.equal(1)
+
+      // Emit some initial progress from process 1
+      spawnedProcesses[0].stdout.emit('data', Buffer.from('PROGRESS:  20.0%|  10.0MiB/s|00:30|  20.00MiB| 100.00MiB|       N/A\n'))
+
+      // Now change speed limit dynamically while download is in progress!
+      manager.applySpeedLimit('1M')
+
+      // Process 1 should have received SIGINT to allow graceful restart
+      expect(killedSignals).to.include('SIGINT')
+
+      // Wait for process 2 to spawn
+      await new Promise((r) => setImmediate(r))
+      await new Promise((r) => setImmediate(r))
+
+      expect(spawnedProcesses).to.have.length(2)
+      expect(capturedArgs[1]).to.include('--limit-rate')
+      expect(capturedArgs[1]).to.include('1M')
+
+      // Emit more progress from process 2 and complete download
+      spawnedProcesses[1].stdout.emit('data', Buffer.from('PROGRESS:  60.0%|  1.00MiB/s|00:40|  60.00MiB| 100.00MiB|       N/A\n/tmp/out/active_ep.mp4\n'))
+      spawnedProcesses[1].emit('close', 0)
+
+      const result = await downloadPromise
+      expect(result.filepath).to.equal('/tmp/out/active_ep.mp4')
+      expect(manager.activeDownloads.size).to.equal(0)
+      expect(progressUpdates).to.have.length(2)
+      expect(progressUpdates[0].percent).to.equal(20.0)
+      expect(progressUpdates[1].percent).to.equal(60.0)
+      expect(progressUpdates[1].speed).to.equal('1.00MiB/s')
+    })
+
+    it('should dynamically remove speed limit when applySpeedLimit(null) is called', async () => {
+      const { EventEmitter } = require('events')
+      global.ServerSettings = { ytdlpDownloadSpeedLimit: '2M' }
+
+      const manager = new YtDlpManager()
+      manager.ytDlpPath = '/usr/bin/yt-dlp'
+      manager.isAvailable = true
+
+      const spawnedProcesses = []
+      const capturedArgs = []
+
+      sinon.stub(childProcess, 'spawn').callsFake((path, args) => {
+        capturedArgs.push(args)
+        const proc = new EventEmitter()
+        proc.stdout = new EventEmitter()
+        proc.stderr = new EventEmitter()
+        proc.kill = sinon.spy((sig) => {
+          setImmediate(() => {
+            proc.emit('close', 1, sig)
+          })
+        })
+        spawnedProcesses.push(proc)
+        return proc
+      })
+
+      const downloadPromise = manager.downloadVideo('https://youtube.com/watch?v=unlim', '/tmp/out', 'unlim_ep', 'best_compatible')
+
+      expect(capturedArgs[0]).to.include('--limit-rate')
+      expect(capturedArgs[0]).to.include('2M')
+
+      // Switch to unlimited
+      manager.applySpeedLimit(null)
+
+      await new Promise((r) => setImmediate(r))
+      await new Promise((r) => setImmediate(r))
+
+      expect(spawnedProcesses).to.have.length(2)
+      expect(capturedArgs[1]).to.not.include('--limit-rate')
+
+      spawnedProcesses[1].stdout.emit('data', Buffer.from('/tmp/out/unlim_ep.mp4\n'))
+      spawnedProcesses[1].emit('close', 0)
+
+      const result = await downloadPromise
+      expect(result.filepath).to.equal('/tmp/out/unlim_ep.mp4')
+      global.ServerSettings = null
+    })
+
+    it('should not restart process if applySpeedLimit is called with same limit', async () => {
+      const { EventEmitter } = require('events')
+      const manager = new YtDlpManager()
+      manager.ytDlpPath = '/usr/bin/yt-dlp'
+      manager.isAvailable = true
+
+      const spawnedProcesses = []
+      sinon.stub(childProcess, 'spawn').callsFake(() => {
+        const proc = new EventEmitter()
+        proc.stdout = new EventEmitter()
+        proc.stderr = new EventEmitter()
+        proc.kill = sinon.spy()
+        spawnedProcesses.push(proc)
+        return proc
+      })
+
+      const downloadPromise = manager.downloadVideo('https://youtube.com/watch?v=same', '/tmp/out', 'same_ep', 'best_compatible')
+      expect(spawnedProcesses).to.have.length(1)
+
+      manager.applySpeedLimit(null)
+      expect(spawnedProcesses[0].kill.called).to.be.false
+
+      spawnedProcesses[0].stdout.emit('data', Buffer.from('/tmp/out/same_ep.mp4\n'))
+      spawnedProcesses[0].emit('close', 0)
+
+      await downloadPromise
+    })
+
+    it('should pick up latest rate limit on rapid changes during restart', async () => {
+      const { EventEmitter } = require('events')
+      const manager = new YtDlpManager()
+      manager.ytDlpPath = '/usr/bin/yt-dlp'
+      manager.isAvailable = true
+
+      const capturedArgs = []
+      const spawnedProcesses = []
+      sinon.stub(childProcess, 'spawn').callsFake((path, args) => {
+        capturedArgs.push(args)
+        const proc = new EventEmitter()
+        proc.stdout = new EventEmitter()
+        proc.stderr = new EventEmitter()
+        proc.kill = sinon.spy((sig) => {
+          // Delayed exit to simulate process winding down
+          setTimeout(() => {
+            proc.emit('close', 1, sig)
+          }, 10)
+        })
+        spawnedProcesses.push(proc)
+        return proc
+      })
+
+      const downloadPromise = manager.downloadVideo('https://youtube.com/watch?v=rapid', '/tmp/out', 'rapid_ep', 'best_compatible')
+
+      // First change to 500K
+      manager.applySpeedLimit('500K')
+      // Immediate second change to 10M before first process has closed
+      manager.applySpeedLimit('10M')
+
+      await new Promise((r) => setTimeout(r, 30))
+
+      expect(spawnedProcesses).to.have.length(2)
+      expect(capturedArgs[1]).to.include('--limit-rate')
+      expect(capturedArgs[1]).to.include('10M')
+
+      spawnedProcesses[1].stdout.emit('data', Buffer.from('/tmp/out/rapid_ep.mp4\n'))
+      spawnedProcesses[1].emit('close', 0)
+
+      const result = await downloadPromise
+      expect(result.filepath).to.equal('/tmp/out/rapid_ep.mp4')
+    })
+
+    it('should trigger applySpeedLimit when ServerSettings.update modifies ytdlpDownloadSpeedLimit', () => {
+      global.MetadataPath = '/tmp'
+      const ServerSettings = require('../../../server/objects/settings/ServerSettings')
+      const settings = new ServerSettings()
+
+      const manager = new YtDlpManager()
+      manager.applySpeedLimit = sinon.spy()
+      global.ytDlpManager = manager
+
+      settings.update({ ytdlpDownloadSpeedLimit: '5M' })
+      expect(manager.applySpeedLimit.calledWith('5M')).to.be.true
+      expect(settings.ytdlpDownloadSpeedLimit).to.equal('5M')
+
+      global.ytDlpManager = null
+      global.MetadataPath = null
     })
   })
 

@@ -12,6 +12,7 @@ class VideoManager {
   constructor() {
     this.ytDlpPath = null
     this.isAvailable = false
+    this.activeDownloads = new Set()
   }
 
   /**
@@ -144,17 +145,15 @@ class VideoManager {
   }
 
   /**
-   * Download a single video from URL
+   * Build yt-dlp command-line arguments for downloading a video
    * @param {string} url
    * @param {string} outputDir
    * @param {string} filename
    * @param {string} [quality='best']
-   * @param {function({percent: number, speed: string, eta: string})|null} [onProgress=null]
-   * @returns {Promise<{filepath: string}>}
+   * @param {string|null} [speedLimit=undefined]
+   * @returns {string[]}
    */
-  async downloadVideo(url, outputDir, filename, quality = 'best', onProgress = null) {
-    if (!this.isAvailable) throw new Error('yt-dlp is not available')
-
+  buildDownloadArgs(url, outputDir, filename, quality = 'best', speedLimit = undefined) {
     const format = this.getFormatForQuality(quality)
     const outputTemplate = Path.join(outputDir, `${filename}.%(ext)s`)
     const args = [
@@ -181,173 +180,287 @@ class VideoManager {
       url
     ]
 
-    // Apply configured download speed limit to avoid IP bans
-    const speedLimit = global.ServerSettings?.ytdlpDownloadSpeedLimit
-    if (speedLimit && typeof speedLimit === 'string' && /^\d+(\.\d+)?[KMGkmg]?$/i.test(speedLimit)) {
-      args.splice(args.length - 1, 0, '--limit-rate', speedLimit)
+    const limit = speedLimit !== undefined ? speedLimit : (global.ServerSettings?.ytdlpDownloadSpeedLimit || null)
+    if (limit && typeof limit === 'string' && /^\d+(\.\d+)?[KMGkmg]?$/i.test(limit.trim())) {
+      args.splice(args.length - 1, 0, '--limit-rate', limit.trim())
     }
 
+    return args
+  }
+
+  /**
+   * Apply a new yt-dlp download speed limit to any currently active downloads.
+   * Restarts active download processes gracefully so yt-dlp resumes from partial files (.part)
+   * with the new rate limit applied immediately.
+   * @param {string|null} [newLimit=null]
+   */
+  applySpeedLimit(newLimit = null) {
+    const formattedLimit = newLimit && typeof newLimit === 'string' && /^\d+(\.\d+)?[KMGkmg]?$/i.test(newLimit.trim()) ? newLimit.trim() : null
+    Logger.info(`[VideoManager] Applying yt-dlp speed limit: ${formattedLimit || 'unlimited'}`)
+
+    for (const download of this.activeDownloads) {
+      if (download.speedLimit === formattedLimit) {
+        continue
+      }
+      Logger.info(`[VideoManager] Updating speed limit for active download "${download.filename}" from ${download.speedLimit || 'unlimited'} to ${formattedLimit || 'unlimited'}`)
+      download.speedLimit = formattedLimit
+
+      if (download.proc && !download.isRestarting) {
+        download.isRestarting = true
+
+        if (download.killTimer) {
+          clearTimeout(download.killTimer)
+          download.killTimer = null
+        }
+
+        // Gracefully terminate current process so yt-dlp flushes buffers and saves partial download (.part)
+        try {
+          download.proc.kill('SIGINT')
+        } catch (e) {
+          Logger.error(`[VideoManager] Error sending SIGINT to yt-dlp process:`, e)
+        }
+
+        // Safety fallback: If process doesn't close within 3 seconds, force kill with SIGKILL
+        download.killTimer = setTimeout(() => {
+          if (download.isRestarting && download.proc) {
+            Logger.warn(`[VideoManager] yt-dlp process did not close cleanly after SIGINT, sending SIGKILL`)
+            try {
+              download.proc.kill('SIGKILL')
+            } catch (e) {
+              // ignore
+            }
+          }
+        }, 3000)
+      }
+    }
+  }
+
+  /**
+   * Download a single video from URL
+   * @param {string} url
+   * @param {string} outputDir
+   * @param {string} filename
+   * @param {string} [quality='best']
+   * @param {function({percent: number, speed: string, eta: string})|null} [onProgress=null]
+   * @returns {Promise<{filepath: string}>}
+   */
+  async downloadVideo(url, outputDir, filename, quality = 'best', onProgress = null) {
+    if (!this.isAvailable) throw new Error('yt-dlp is not available')
+
+    const initialSpeedLimit = global.ServerSettings?.ytdlpDownloadSpeedLimit || null
+
     return new Promise((resolve, reject) => {
-      const proc = childProcess.spawn(this.ytDlpPath, args)
-
-      let stdoutBuffer = ''
-      let lineBuffer = ''
-      let stderrBuffer = ''
-
-      const isIgnoredLine = (l) => /^(\[[a-zA-Z0-9_.-]+\]|PROGRESS:|WARNING:|ERROR:)/.test(l)
-
-      const processLine = (rawLine) => {
-        const line = rawLine.replace(/\r/g, '').trim()
-        if (!line) return
-
-        // 1. Check for structured PROGRESS template
-        const progressMatch = line.match(/^PROGRESS:\s*([^|]*)\|([^|]*)\|([^|]*)(?:\|([^|]*)\|([^|]*)\|([^|]*))?/)
-        if (progressMatch) {
-          const rawPct = progressMatch[1].trim()
-          const rawSpeed = progressMatch[2].trim()
-          const rawEta = progressMatch[3].trim()
-
-          let percent = null
-          if (rawPct && rawPct !== 'NA' && rawPct !== 'Unknown') {
-            const parsed = parseFloat(rawPct.replace('%', ''))
-            if (!isNaN(parsed)) percent = parsed
-          }
-
-          const speed = rawSpeed && rawSpeed !== 'NA' && rawSpeed !== 'Unknown' && rawSpeed !== 'Unknown B/s' ? rawSpeed : null
-          const eta = rawEta && rawEta !== 'NA' && rawEta !== 'Unknown' ? rawEta : null
-
-          if (onProgress && (percent !== null || speed !== null)) {
-            try {
-              onProgress({ percent, speed, eta })
-            } catch (err) {
-              Logger.error(`[VideoManager] onProgress error:`, err)
-            }
-          }
-          return
-        }
-
-        // 2. Fallback regex for standard yt-dlp [download] progress output
-        const pctMatch = line.match(/\[download\]\s+([\d.]+)%/)
-        if (pctMatch) {
-          const percent = parseFloat(pctMatch[1])
-          const speedMatch = line.match(/at\s+([\d.]+\s*\S+\/s)/)
-          const etaMatch = line.match(/ETA\s+(\S+)/)
-          if (onProgress) {
-            try {
-              onProgress({
-                percent,
-                speed: speedMatch ? speedMatch[1].trim() : null,
-                eta: etaMatch ? etaMatch[1].trim() : null
-              })
-            } catch (err) {
-              Logger.error(`[VideoManager] onProgress error:`, err)
-            }
-          }
-          return
-        }
-
-        // 3. Fallback for yt-dlp byte-only progress lines (e.g. [download]   15.00KiB at  890.98KiB/s)
-        const byteProgressMatch = line.match(/\[download\]\s+[\d.]+\s*\S+\s+at\s+([\d.]+\s*\S+\/s)/)
-        if (byteProgressMatch) {
-          if (onProgress) {
-            try {
-              onProgress({
-                percent: null,
-                speed: byteProgressMatch[1].trim(),
-                eta: null
-              })
-            } catch (err) {
-              Logger.error(`[VideoManager] onProgress error:`, err)
-            }
-          }
-          return
-        }
-
-        // If not a progress line or tag line, save for capturing final filepath from --print after_move:filepath
-        if (!isIgnoredLine(line)) {
-          stdoutBuffer += line + '\n'
-        }
+      const activeDownload = {
+        url,
+        outputDir,
+        filename,
+        quality,
+        onProgress,
+        speedLimit: initialSpeedLimit,
+        proc: null,
+        isRestarting: false,
+        killTimer: null,
+        resolve,
+        reject
       }
 
-      proc.stdout.on('data', (data) => {
-        try {
-          lineBuffer += data.toString()
-          const lines = lineBuffer.split('\n')
-          lineBuffer = lines.pop()
-          for (const line of lines) {
-            processLine(line)
-          }
-        } catch (err) {
-          Logger.error(`[VideoManager] stdout error:`, err)
-        }
-      })
+      this.activeDownloads.add(activeDownload)
 
-      proc.stderr.on('data', (data) => {
-        try {
-          stderrBuffer += data.toString()
-          const lines = stderrBuffer.split('\n')
-          stderrBuffer = lines.pop()
-          for (const line of lines) {
-            const trimmed = line.replace(/\r/g, '').trim()
-            if (!trimmed) continue
-            const pctMatch = trimmed.match(/\[download\]\s+([\d.]+)%/)
-            if (pctMatch) {
-              if (onProgress) {
-                try {
-                  const speedMatch = trimmed.match(/at\s+([\d.]+\s*\S+\/s)/)
-                  const etaMatch = trimmed.match(/ETA\s+(\S+)/)
-                  onProgress({
-                    percent: parseFloat(pctMatch[1]),
-                    speed: speedMatch ? speedMatch[1].trim() : null,
-                    eta: etaMatch ? etaMatch[1] : null
-                  })
-                } catch (err) {
-                  Logger.error(`[VideoManager] onProgress error:`, err)
-                }
-              }
-            } else if (!trimmed.startsWith('WARNING:')) {
-              Logger.debug(`[VideoManager] ${trimmed}`)
+      const startProcess = () => {
+        const args = this.buildDownloadArgs(
+          activeDownload.url,
+          activeDownload.outputDir,
+          activeDownload.filename,
+          activeDownload.quality,
+          activeDownload.speedLimit
+        )
+
+        const proc = childProcess.spawn(this.ytDlpPath, args)
+        activeDownload.proc = proc
+
+        let stdoutBuffer = ''
+        let lineBuffer = ''
+        let stderrBuffer = ''
+
+        const isIgnoredLine = (l) => /^(\[[a-zA-Z0-9_.-]+\]|PROGRESS:|WARNING:|ERROR:)/.test(l)
+
+        const processLine = (rawLine) => {
+          const line = rawLine.replace(/\r/g, '').trim()
+          if (!line) return
+
+          // 1. Check for structured PROGRESS template
+          const progressMatch = line.match(/^PROGRESS:\s*([^|]*)\|([^|]*)\|([^|]*)(?:\|([^|]*)\|([^|]*)\|([^|]*))?/)
+          if (progressMatch) {
+            const rawPct = progressMatch[1].trim()
+            const rawSpeed = progressMatch[2].trim()
+            const rawEta = progressMatch[3].trim()
+
+            let percent = null
+            if (rawPct && rawPct !== 'NA' && rawPct !== 'Unknown') {
+              const parsed = parseFloat(rawPct.replace('%', ''))
+              if (!isNaN(parsed)) percent = parsed
             }
+
+            const speed = rawSpeed && rawSpeed !== 'NA' && rawSpeed !== 'Unknown' && rawSpeed !== 'Unknown B/s' ? rawSpeed : null
+            const eta = rawEta && rawEta !== 'NA' && rawEta !== 'Unknown' ? rawEta : null
+
+            if (activeDownload.onProgress && (percent !== null || speed !== null)) {
+              try {
+                activeDownload.onProgress({ percent, speed, eta })
+              } catch (err) {
+                Logger.error(`[VideoManager] onProgress error:`, err)
+              }
+            }
+            return
           }
-        } catch (err) {
-          Logger.error(`[VideoManager] stderr error:`, err)
+
+          // 2. Fallback regex for standard yt-dlp [download] progress output
+          const pctMatch = line.match(/\[download\]\s+([\d.]+)%/)
+          if (pctMatch) {
+            const percent = parseFloat(pctMatch[1])
+            const speedMatch = line.match(/at\s+([\d.]+\s*\S+\/s)/)
+            const etaMatch = line.match(/ETA\s+(\S+)/)
+            if (activeDownload.onProgress) {
+              try {
+                activeDownload.onProgress({
+                  percent,
+                  speed: speedMatch ? speedMatch[1].trim() : null,
+                  eta: etaMatch ? etaMatch[1].trim() : null
+                })
+              } catch (err) {
+                Logger.error(`[VideoManager] onProgress error:`, err)
+              }
+            }
+            return
+          }
+
+          // 3. Fallback for yt-dlp byte-only progress lines (e.g. [download]   15.00KiB at  890.98KiB/s)
+          const byteProgressMatch = line.match(/\[download\]\s+[\d.]+\s*\S+\s+at\s+([\d.]+\s*\S+\/s)/)
+          if (byteProgressMatch) {
+            if (activeDownload.onProgress) {
+              try {
+                activeDownload.onProgress({
+                  percent: null,
+                  speed: byteProgressMatch[1].trim(),
+                  eta: null
+                })
+              } catch (err) {
+                Logger.error(`[VideoManager] onProgress error:`, err)
+              }
+            }
+            return
+          }
+
+          // If not a progress line or tag line, save for capturing final filepath from --print after_move:filepath
+          if (!isIgnoredLine(line)) {
+            stdoutBuffer += line + '\n'
+          }
         }
-      })
 
-      proc.stdout.on('error', (err) => {
-        Logger.error(`[VideoManager] stdout stream error: ${err.message}`)
-      })
+        proc.stdout.on('data', (data) => {
+          try {
+            lineBuffer += data.toString()
+            const lines = lineBuffer.split('\n')
+            lineBuffer = lines.pop()
+            for (const line of lines) {
+              processLine(line)
+            }
+          } catch (err) {
+            Logger.error(`[VideoManager] stdout error:`, err)
+          }
+        })
 
-      proc.stderr.on('error', (err) => {
-        Logger.error(`[VideoManager] stderr stream error: ${err.message}`)
-      })
+        proc.stderr.on('data', (data) => {
+          try {
+            stderrBuffer += data.toString()
+            const lines = stderrBuffer.split('\n')
+            stderrBuffer = lines.pop()
+            for (const line of lines) {
+              const trimmed = line.replace(/\r/g, '').trim()
+              if (!trimmed) continue
+              const pctMatch = trimmed.match(/\[download\]\s+([\d.]+)%/)
+              if (pctMatch) {
+                if (activeDownload.onProgress) {
+                  try {
+                    const speedMatch = trimmed.match(/at\s+([\d.]+\s*\S+\/s)/)
+                    const etaMatch = trimmed.match(/ETA\s+(\S+)/)
+                    activeDownload.onProgress({
+                      percent: parseFloat(pctMatch[1]),
+                      speed: speedMatch ? speedMatch[1].trim() : null,
+                      eta: etaMatch ? etaMatch[1] : null
+                    })
+                  } catch (err) {
+                    Logger.error(`[VideoManager] onProgress error:`, err)
+                  }
+                }
+              } else if (!trimmed.startsWith('WARNING:')) {
+                Logger.debug(`[VideoManager] ${trimmed}`)
+              }
+            }
+          } catch (err) {
+            Logger.error(`[VideoManager] stderr error:`, err)
+          }
+        })
 
-      proc.on('close', (code) => {
-        if (lineBuffer) processLine(lineBuffer)
-        if (code !== 0) {
-          const err = new Error(`yt-dlp exited with code ${code}`)
-          Logger.error(`[VideoManager] Download failed: ${err.message}`)
-          return reject(err)
-        }
-        const filepath = stdoutBuffer
-          .trim()
-          .split('\n')
-          .filter((l) => l && !isIgnoredLine(l.trim()))
-          .pop()
-          ?.trim()
+        proc.stdout.on('error', (err) => {
+          Logger.error(`[VideoManager] stdout stream error: ${err.message}`)
+        })
 
-        if (!filepath) {
-          const err = new Error('yt-dlp completed successfully but output filepath could not be resolved')
-          Logger.error(`[VideoManager] ${err.message}`)
-          return reject(err)
-        }
-        resolve({ filepath })
-      })
+        proc.stderr.on('error', (err) => {
+          Logger.error(`[VideoManager] stderr stream error: ${err.message}`)
+        })
 
-      proc.on('error', (err) => {
-        Logger.error(`[VideoManager] spawn error: ${err.message}`)
-        reject(err)
-      })
+        proc.on('close', (code, signal) => {
+          if (activeDownload.killTimer) {
+            clearTimeout(activeDownload.killTimer)
+            activeDownload.killTimer = null
+          }
+
+          if (activeDownload.isRestarting) {
+            activeDownload.isRestarting = false
+            Logger.info(`[VideoManager] Restarting yt-dlp download for "${activeDownload.filename}" with speed limit: ${activeDownload.speedLimit || 'unlimited'}`)
+            startProcess()
+            return
+          }
+
+          this.activeDownloads.delete(activeDownload)
+
+          if (lineBuffer) processLine(lineBuffer)
+          if (code !== 0) {
+            const err = new Error(`yt-dlp exited with code ${code}${signal ? ` (signal ${signal})` : ''}`)
+            Logger.error(`[VideoManager] Download failed: ${err.message}`)
+            return activeDownload.reject(err)
+          }
+          const filepath = stdoutBuffer
+            .trim()
+            .split('\n')
+            .filter((l) => l && !isIgnoredLine(l.trim()))
+            .pop()
+            ?.trim()
+
+          if (!filepath) {
+            const err = new Error('yt-dlp completed successfully but output filepath could not be resolved')
+            Logger.error(`[VideoManager] ${err.message}`)
+            return activeDownload.reject(err)
+          }
+          activeDownload.resolve({ filepath })
+        })
+
+        proc.on('error', (err) => {
+          if (activeDownload.isRestarting) {
+            return
+          }
+          if (activeDownload.killTimer) {
+            clearTimeout(activeDownload.killTimer)
+            activeDownload.killTimer = null
+          }
+          this.activeDownloads.delete(activeDownload)
+          Logger.error(`[VideoManager] spawn error: ${err.message}`)
+          activeDownload.reject(err)
+        })
+      }
+
+      startProcess()
     })
   }
 

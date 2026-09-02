@@ -154,6 +154,14 @@ class MiscController {
       if (settingsUpdate.backupSchedule !== undefined) {
         this.backupManager.updateCronSchedule()
       }
+
+      // If yt-dlp download speed limit is updated - update active downloads
+      if (settingsUpdate.ytdlpDownloadSpeedLimit !== undefined) {
+        const ytDlpManager = this.ytDlpManager || global.ytDlpManager
+        if (ytDlpManager?.applySpeedLimit) {
+          ytDlpManager.applySpeedLimit(settingsUpdate.ytdlpDownloadSpeedLimit)
+        }
+      }
     }
     return res.json({
       serverSettings: Database.serverSettings.toJSONForBrowser()

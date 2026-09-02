@@ -2,7 +2,7 @@ const Path = require('path')
 const fs = require('../libs/fsExtra')
 const stream = require('stream')
 const Logger = require('../Logger')
-const { resizeImage } = require('../utils/ffmpegHelpers')
+const ffmpegHelpers = require('../utils/ffmpegHelpers')
 const { encodeUriPath } = require('../utils/fileUtils')
 const Database = require('../Database')
 
@@ -53,14 +53,11 @@ class CacheManager {
       }
 
       const r = fs.createReadStream(cachePath)
-      const ps = new stream.PassThrough()
-      stream.pipeline(r, ps, (err) => {
-        if (err) {
-          console.log(err)
-          return res.sendStatus(500)
-        }
+      r.on('error', (err) => {
+        Logger.error(`[CacheManager] Error reading cached cover "${cachePath}": ${err.message}`)
+        if (!res.headersSent) res.sendStatus(500)
       })
-      return ps.pipe(res)
+      return r.pipe(res)
     }
 
     // Cached cover does not exist, generate it
@@ -69,7 +66,7 @@ class CacheManager {
       return res.sendStatus(404)
     }
 
-    const writtenFile = await resizeImage(coverPath, cachePath, width, height)
+    const writtenFile = await ffmpegHelpers.resizeImage(coverPath, cachePath, width, height)
     if (!writtenFile) return res.sendStatus(500)
 
     if (global.XAccel) {
@@ -79,6 +76,10 @@ class CacheManager {
     }
 
     var readStream = fs.createReadStream(writtenFile)
+    readStream.on('error', (err) => {
+      Logger.error(`[CacheManager] Error reading resized cover "${writtenFile}": ${err.message}`)
+      if (!res.headersSent) res.sendStatus(500)
+    })
     readStream.pipe(res)
   }
 
@@ -156,14 +157,11 @@ class CacheManager {
     // Cache exists
     if (await fs.pathExists(cachePath)) {
       const r = fs.createReadStream(cachePath)
-      const ps = new stream.PassThrough()
-      stream.pipeline(r, ps, (err) => {
-        if (err) {
-          console.log(err)
-          return res.sendStatus(500)
-        }
+      r.on('error', (err) => {
+        Logger.error(`[CacheManager] Error reading cached author image "${cachePath}": ${err.message}`)
+        if (!res.headersSent) res.sendStatus(500)
       })
-      return ps.pipe(res)
+      return r.pipe(res)
     }
 
     const author = await Database.authorModel.findByPk(authorId)
@@ -171,10 +169,14 @@ class CacheManager {
       return res.sendStatus(404)
     }
 
-    let writtenFile = await resizeImage(author.imagePath, cachePath, width, height)
+    let writtenFile = await ffmpegHelpers.resizeImage(author.imagePath, cachePath, width, height)
     if (!writtenFile) return res.sendStatus(500)
 
     var readStream = fs.createReadStream(writtenFile)
+    readStream.on('error', (err) => {
+      Logger.error(`[CacheManager] Error reading resized author image "${writtenFile}": ${err.message}`)
+      if (!res.headersSent) res.sendStatus(500)
+    })
     readStream.pipe(res)
   }
 }

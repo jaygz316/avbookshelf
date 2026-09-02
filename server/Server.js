@@ -531,15 +531,17 @@ class Server {
         type: Sequelize.QueryTypes.SELECT
       })
       for (const user of users) {
-        const extraData = JSON.parse(user.extraData)
-        const existingSeriesIds = extraData.seriesHideFromContinueListening
-        const seriesIdsToRemove = JSON.parse(user.dataValues.seriesIdsToRemove)
-        Logger.info(`[Server] Found ${seriesIdsToRemove.length} non-existent series in seriesHideFromContinueListening for user "${user.username}" - Removing (${seriesIdsToRemove.join(',')})`)
-        const newExtraData = {
-          ...extraData,
-          seriesHideFromContinueListening: existingSeriesIds.filter((s) => !seriesIdsToRemove.includes(s))
+        const extraData = typeof user.extraData === 'string' ? JSON.parse(user.extraData) : user.extraData || {}
+        const existingSeriesIds = extraData.seriesHideFromContinueListening || []
+        const seriesIdsToRemove = typeof user.dataValues?.seriesIdsToRemove === 'string' ? JSON.parse(user.dataValues.seriesIdsToRemove) : user.dataValues?.seriesIdsToRemove || []
+        if (seriesIdsToRemove.length) {
+          Logger.info(`[Server] Found ${seriesIdsToRemove.length} non-existent series in seriesHideFromContinueListening for user "${user.username}" - Removing (${seriesIdsToRemove.join(',')})`)
+          const newExtraData = {
+            ...extraData,
+            seriesHideFromContinueListening: existingSeriesIds.filter((s) => !seriesIdsToRemove.includes(s))
+          }
+          await user.update({ extraData: newExtraData })
         }
-        await user.update({ extraData: newExtraData })
       }
     } catch (error) {
       Logger.error(`[Server] Failed to cleanup users seriesHideFromContinueListening`, error)
@@ -560,4 +562,13 @@ class Server {
     Logger.info('[Server] HTTP Server Closed')
   }
 }
+
+process.on('uncaughtException', (err) => {
+  Logger.fatal('[Process] Uncaught Exception:', err)
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  Logger.error('[Process] Unhandled Rejection at:', promise, 'reason:', reason)
+})
+
 module.exports = Server
