@@ -367,6 +367,8 @@ class ServerSettings {
       } else if (this[key] !== payload[key]) {
         if (key === 'logLevel') {
           Logger.setLogLevel(payload[key])
+        } else if (key === 'ytdlpDownloadSpeedLimit') {
+          global.ytDlpManager?.applySpeedLimit?.(payload[key])
         }
         this[key] = payload[key]
         hasUpdates = true

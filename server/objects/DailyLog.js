@@ -64,6 +64,9 @@ class DailyLog {
    */
   appendLog(logObj) {
     this.logs.push(logObj)
+    if (this.logs.length > 5000) {
+      this.logs.shift()
+    }
     return this.appendLogLine(JSON.stringify(logObj) + '\n')
   }
 
@@ -108,28 +111,32 @@ class DailyLog {
     if (logLines.length && !logLines[logLines.length - 1]) logLines = logLines.slice(0, -1)
 
     // JSON parse log lines
-    this.logs = logLines.map(t => {
+    let validLogs = []
+    for (const t of logLines) {
       if (!t) {
         hasFailures = true
-        return null
+        continue
       }
       try {
-        return JSON.parse(t)
+        const parsed = JSON.parse(t)
+        validLogs.push(parsed)
       } catch (err) {
         console.error('Failed to parse log line', t, err)
         hasFailures = true
-        return null
       }
-    }).filter(l => !!l)
+    }
 
     // Rewrite log file to remove errors
     if (hasFailures) {
-      const newLogLines = this.logs.map(l => JSON.stringify(l)).join('\n') + '\n'
+      const newLogLines = validLogs.map((l) => JSON.stringify(l)).join('\n') + '\n'
       await fs.writeFile(this.fullPath, newLogLines)
       console.log('Re-Saved log file to remove bad lines')
     }
 
-    Logger.debug(`[DailyLog] ${this.id}: Loaded ${this.logs.length} Logs`)
+    // Retain only the most recent 5,000 logs in memory for the logger viewer
+    this.logs = validLogs.length > 5000 ? validLogs.slice(-5000) : validLogs
+
+    Logger.debug(`[DailyLog] ${this.id}: Loaded ${this.logs.length} Logs into memory (total on disk: ${validLogs.length})`)
   }
 }
 module.exports = DailyLog
