@@ -147,31 +147,45 @@
     </div>
 
         <div class="w-full px-4 pb-3 pt-8 bg-gradient-to-t from-black/85 via-black/50 to-transparent pointer-events-auto">
-            <div class="w-full relative py-2 group/scrubber cursor-pointer" @mousemove="onScrubberHover" @mouseleave="onScrubberLeave" @click.stop="onScrubberClick">
-        <div ref="scrubberTrack" class="w-full h-1 sm:h-1.5 group-hover/scrubber:h-2.5 bg-white/25 relative rounded-full transition-all duration-150 overflow-visible">
-                    <div class="h-full bg-white/40 absolute top-0 left-0 rounded-full pointer-events-none transition-all duration-100" :style="{ width: bufferPercent + '%' }" />
-
-                    <div class="h-full bg-accent absolute top-0 left-0 rounded-full pointer-events-none transition-all duration-75" :style="{ width: progressPercent + '%' }" />
-
-                    <template v-for="(tick, idx) in chapterTicks">
-            <div :key="idx" :style="{ left: tick.left + '%' }" class="absolute top-0 w-0.5 bg-white/70 h-full pointer-events-none" />
-          </template>
-
-                    <div
-            class="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white border-2 border-accent rounded-full opacity-0 group-hover/scrubber:opacity-100 shadow-md transition-opacity duration-150 pointer-events-none"
-            :style="{ left: `calc(${progressPercent}% - 7px)` }"
-          />
-        </div>
-
-                <div
-          ref="scrubberTooltip"
-          class="absolute -top-7 pointer-events-none bg-black/90 text-white text-xs font-mono px-2 py-0.5 rounded shadow-lg border border-white/20 whitespace-nowrap transition-opacity duration-150"
-          :class="isHoveringScrubber ? 'opacity-100' : 'opacity-0'"
-          :style="{ left: hoverTooltipLeft + 'px' }"
+            <!-- Scrubber Bar -->
+        <div
+          class="w-full relative py-2 group/scrubber cursor-pointer select-none"
+          @mousemove="onScrubberHover"
+          @mouseleave="onScrubberLeave"
+          @click.stop="onScrubberClick"
+          @mousedown.stop.prevent="startScrub"
+          @touchstart.stop.prevent="startTouchScrub"
         >
-          {{ hoverTooltipText }}
+          <div ref="scrubberTrack" class="w-full h-1 sm:h-1.5 group-hover/scrubber:h-2.5 bg-white/25 relative rounded-full transition-all duration-150 overflow-visible">
+            <!-- Buffer Bar -->
+            <div class="h-full bg-white/40 absolute top-0 left-0 rounded-full pointer-events-none transition-all duration-100" :style="{ width: bufferPercent + '%' }" />
+
+            <!-- Progress Bar -->
+            <div class="h-full bg-accent absolute top-0 left-0 rounded-full pointer-events-none transition-all duration-75" :style="{ width: displayProgressPercent + '%' }" />
+
+            <!-- Chapter Ticks -->
+            <template v-for="(tick, idx) in chapterTicks">
+              <div :key="idx" :style="{ left: tick.left + '%' }" class="absolute top-0 w-0.5 bg-white/70 h-full pointer-events-none" />
+            </template>
+
+            <!-- Scrubber Thumb -->
+            <div
+              class="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white border-2 border-accent rounded-full shadow-md transition-all duration-150 pointer-events-none"
+              :class="isScrubbing ? 'opacity-100 scale-125' : 'opacity-0 group-hover/scrubber:opacity-100'"
+              :style="{ left: `calc(${displayProgressPercent}% - 7px)` }"
+            />
+          </div>
+
+          <!-- Tooltip -->
+          <div
+            ref="scrubberTooltip"
+            class="absolute -top-7 pointer-events-none bg-black/90 text-white text-xs font-mono px-2 py-0.5 rounded shadow-lg border border-white/20 whitespace-nowrap transition-opacity duration-150"
+            :class="isHoveringScrubber || isScrubbing ? 'opacity-100' : 'opacity-0'"
+            :style="{ left: hoverTooltipLeft + 'px' }"
+          >
+            {{ hoverTooltipText }}
+          </div>
         </div>
-      </div>
 
             <div class="flex items-center justify-between mt-1 text-white">
                 <div class="flex items-center gap-1.5 sm:gap-3">
@@ -351,7 +365,10 @@ export default {
       isHoveringScrubber: false,
       hoverTooltipLeft: 0,
       hoverTooltipText: '00:00',
-      singleClickTimeout: null
+      singleClickTimeout: null,
+      isScrubbing: false,
+      scrubPercent: null,
+      scrubTime: null
     }
   },
   computed: {
@@ -361,6 +378,12 @@ export default {
     progressPercent() {
       if (!this.duration) return 0
       return Math.min(100, Math.max(0, (this.currentTime / this.duration) * 100))
+    },
+    displayProgressPercent() {
+      if (this.isScrubbing && this.scrubPercent !== null) {
+        return this.scrubPercent
+      }
+      return this.progressPercent
     },
     bufferPercent() {
       if (!this.duration) return 0
@@ -433,6 +456,7 @@ export default {
     clearTimeout(this.volumeOsdTimeout)
     clearTimeout(this.singleClickTimeout)
     window.removeEventListener('click', this.onWindowClick)
+    this.stopScrubbing()
   },
   methods: {
     onMouseMove() {
@@ -524,13 +548,105 @@ export default {
     onScrubberLeave() {
       this.isHoveringScrubber = false
     },
-    onScrubberClick(e) {
-      if (!this.$refs.scrubberTrack || !this.duration) return
+    getTimeFromEvent(e) {
+      if (!this.$refs.scrubberTrack || !this.duration) return { time: 0, perc: 0, offsetX: 0, width: 0 }
       const rect = this.$refs.scrubberTrack.getBoundingClientRect()
-      const offsetX = Math.max(0, Math.min(e.clientX - rect.left, rect.width))
-      const perc = offsetX / rect.width
-      const time = perc * this.duration
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX
+      const offsetX = Math.max(0, Math.min(clientX - rect.left, rect.width))
+      const perc = rect.width ? (offsetX / rect.width) * 100 : 0
+      const time = rect.width ? (offsetX / rect.width) * this.duration : 0
+      return { time, perc, offsetX, width: rect.width }
+    },
+    onScrubberClick(e) {
+      const { time } = this.getTimeFromEvent(e)
       this.$emit('seek', time)
+    },
+    startScrub(e) {
+      if (!this.$refs.scrubberTrack || !this.duration) return
+      this.isScrubbing = true
+      clearTimeout(this.hideTimeout)
+      const { time, perc, offsetX, width } = this.getTimeFromEvent(e)
+      this.scrubPercent = perc
+      this.scrubTime = time
+      this.updateTooltip(time, offsetX, width)
+      this.$emit('seek', time)
+
+      window.addEventListener('mousemove', this.onScrubMove)
+      window.addEventListener('mouseup', this.onScrubEnd)
+    },
+    onScrubMove(e) {
+      if (!this.isScrubbing) return
+      clearTimeout(this.hideTimeout)
+      const { time, perc, offsetX, width } = this.getTimeFromEvent(e)
+      this.scrubPercent = perc
+      this.scrubTime = time
+      this.updateTooltip(time, offsetX, width)
+      this.$emit('seek', time)
+    },
+    onScrubEnd(e) {
+      if (!this.isScrubbing) return
+      this.isScrubbing = false
+      const { time } = this.getTimeFromEvent(e)
+      this.scrubPercent = null
+      this.scrubTime = null
+      this.$emit('seek', time)
+      this.scheduleHide()
+
+      window.removeEventListener('mousemove', this.onScrubMove)
+      window.removeEventListener('mouseup', this.onScrubEnd)
+    },
+    startTouchScrub(e) {
+      if (!this.$refs.scrubberTrack || !this.duration) return
+      this.isScrubbing = true
+      clearTimeout(this.hideTimeout)
+      const { time, perc, offsetX, width } = this.getTimeFromEvent(e)
+      this.scrubPercent = perc
+      this.scrubTime = time
+      this.updateTooltip(time, offsetX, width)
+      this.$emit('seek', time)
+
+      window.addEventListener('touchmove', this.onTouchScrubMove, { passive: false })
+      window.addEventListener('touchend', this.onTouchScrubEnd)
+    },
+    onTouchScrubMove(e) {
+      if (!this.isScrubbing) return
+      e.preventDefault()
+      clearTimeout(this.hideTimeout)
+      const { time, perc, offsetX, width } = this.getTimeFromEvent(e)
+      this.scrubPercent = perc
+      this.scrubTime = time
+      this.updateTooltip(time, offsetX, width)
+      this.$emit('seek', time)
+    },
+    onTouchScrubEnd(e) {
+      if (!this.isScrubbing) return
+      this.isScrubbing = false
+      const { time } = this.getTimeFromEvent(e)
+      this.scrubPercent = null
+      this.scrubTime = null
+      this.$emit('seek', time)
+      this.scheduleHide()
+
+      window.removeEventListener('touchmove', this.onTouchScrubMove)
+      window.removeEventListener('touchend', this.onTouchScrubEnd)
+    },
+    stopScrubbing() {
+      this.isScrubbing = false
+      this.scrubPercent = null
+      this.scrubTime = null
+      window.removeEventListener('mousemove', this.onScrubMove)
+      window.removeEventListener('mouseup', this.onScrubEnd)
+      window.removeEventListener('touchmove', this.onTouchScrubMove)
+      window.removeEventListener('touchend', this.onTouchScrubEnd)
+    },
+    updateTooltip(time, offsetX, width) {
+      this.hoverTooltipLeft = Math.max(10, Math.min(offsetX, width - 60))
+      let hoverText = this.$secondsToTimestamp(time / (this.playbackRate || 1))
+      const chapter = this.chapters.find((ch) => ch.start <= time && time < ch.end)
+      if (chapter?.title) {
+        hoverText += ` • ${chapter.title}`
+      }
+      this.hoverTooltipText = hoverText
     },
     cycleVideoFit() {
       const modes = ['contain', 'cover', 'fill']

@@ -171,13 +171,18 @@
               </div>
 
               <!-- Bottom: Timestamp and Progress Track -->
-              <div class="w-full cursor-pointer py-1" @click.stop="onScrubberClick">
+              <div
+                class="w-full cursor-pointer py-1 select-none mini-scrubber"
+                @mousedown.stop.prevent="startScrub"
+                @touchstart.stop.prevent="startTouchScrub"
+                @click.stop="onScrubberClick"
+              >
                 <div class="flex items-center justify-between text-xxs font-mono text-gray-300 mb-1 px-0.5 pointer-events-none">
-                  <span>{{ currentTimestamp }}</span>
+                  <span>{{ displayCurrentTimestamp }}</span>
                   <span>{{ durationTimestamp }}</span>
                 </div>
-                <div ref="scrubberTrack" class="w-full h-1 sm:h-1.5 bg-white/25 rounded-full overflow-hidden relative">
-                  <div class="h-full bg-accent transition-all duration-75" :style="{ width: progressPercent + '%' }" />
+                <div ref="scrubberTrack" class="w-full h-1 sm:h-1.5 hover:h-2 bg-white/25 rounded-full overflow-hidden relative transition-all">
+                  <div class="h-full bg-accent transition-all duration-75" :style="{ width: displayProgressPercent + '%' }" />
                 </div>
               </div>
             </div>
@@ -259,7 +264,10 @@ export default {
       startPos: { left: 0, top: 0 },
       startSize: { width: 0, height: 0 },
       dragMouseStart: { x: 0, y: 0 },
-      dragPosStart: { left: 0, top: 0 }
+      dragPosStart: { left: 0, top: 0 },
+      isScrubbing: false,
+      scrubPercent: null,
+      scrubTime: null
     }
   },
   computed: {
@@ -267,8 +275,20 @@ export default {
       if (!this.duration) return 0
       return Math.min(100, Math.max(0, (this.currentTime / this.duration) * 100))
     },
+    displayProgressPercent() {
+      if (this.isScrubbing && this.scrubPercent !== null) {
+        return this.scrubPercent
+      }
+      return this.progressPercent
+    },
     currentTimestamp() {
       return this.$secondsToTimestamp ? this.$secondsToTimestamp(this.currentTime / (this.playbackRate || 1)) : '00:00'
+    },
+    displayCurrentTimestamp() {
+      if (this.isScrubbing && this.scrubTime !== null) {
+        return this.$secondsToTimestamp ? this.$secondsToTimestamp(this.scrubTime / (this.playbackRate || 1)) : '00:00'
+      }
+      return this.currentTimestamp
     },
     durationTimestamp() {
       return this.$secondsToTimestamp ? this.$secondsToTimestamp(this.duration / (this.playbackRate || 1)) : '00:00'
@@ -356,6 +376,22 @@ export default {
       window.removeEventListener('mouseup', this.onResizeEnd)
       window.removeEventListener('touchmove', this.onResizeMove)
       window.removeEventListener('touchend', this.onResizeEnd)
+      this.stopScrubbing()
+    }
+
+    const videoEl = document.getElementById('video-player')
+    if (videoEl && this.$refs.miniVideoContainer && videoEl.parentElement === this.$refs.miniVideoContainer) {
+      const mainContainer = document.getElementById('video-player-container')
+      if (mainContainer) {
+        mainContainer.appendChild(videoEl)
+        videoEl.style.display = 'block'
+        videoEl.style.width = '100%'
+        videoEl.style.height = '100%'
+        videoEl.style.opacity = '1'
+        videoEl.style.position = 'static'
+      } else {
+        document.body.appendChild(videoEl)
+      }
     }
   },
   methods: {
@@ -430,18 +466,90 @@ export default {
         this.clampPositionAndSize()
       })
     },
-    onScrubberClick(e) {
-      if (!this.duration || !this.$refs.scrubberTrack) return
+    getTimeFromEvent(e) {
+      if (!this.duration || !this.$refs.scrubberTrack) return { time: 0, perc: 0 }
       const rect = this.$refs.scrubberTrack.getBoundingClientRect()
-      const clickX = e.clientX - rect.left
-      const pct = Math.max(0, Math.min(1, clickX / rect.width))
-      const targetTime = pct * this.duration
-      this.$emit('seek', targetTime)
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX
+      const offsetX = Math.max(0, Math.min(clientX - rect.left, rect.width))
+      const pct = rect.width ? offsetX / rect.width : 0
+      return { time: pct * this.duration, perc: pct * 100 }
+    },
+    onScrubberClick(e) {
+      const { time } = this.getTimeFromEvent(e)
+      this.$emit('seek', time)
+    },
+    startScrub(e) {
+      if (!this.duration || !this.$refs.scrubberTrack) return
+      this.isScrubbing = true
+      const { time, perc } = this.getTimeFromEvent(e)
+      this.scrubPercent = perc
+      this.scrubTime = time
+      this.$emit('seek', time)
+
+      window.addEventListener('mousemove', this.onScrubMove)
+      window.addEventListener('mouseup', this.onScrubEnd)
+    },
+    onScrubMove(e) {
+      if (!this.isScrubbing) return
+      const { time, perc } = this.getTimeFromEvent(e)
+      this.scrubPercent = perc
+      this.scrubTime = time
+      this.$emit('seek', time)
+    },
+    onScrubEnd(e) {
+      if (!this.isScrubbing) return
+      this.isScrubbing = false
+      const { time } = this.getTimeFromEvent(e)
+      this.scrubPercent = null
+      this.scrubTime = null
+      this.$emit('seek', time)
+
+      window.removeEventListener('mousemove', this.onScrubMove)
+      window.removeEventListener('mouseup', this.onScrubEnd)
+    },
+    startTouchScrub(e) {
+      if (!this.duration || !this.$refs.scrubberTrack) return
+      this.isScrubbing = true
+      const { time, perc } = this.getTimeFromEvent(e)
+      this.scrubPercent = perc
+      this.scrubTime = time
+      this.$emit('seek', time)
+
+      window.addEventListener('touchmove', this.onTouchScrubMove, { passive: false })
+      window.addEventListener('touchend', this.onTouchScrubEnd)
+    },
+    onTouchScrubMove(e) {
+      if (!this.isScrubbing) return
+      e.preventDefault()
+      const { time, perc } = this.getTimeFromEvent(e)
+      this.scrubPercent = perc
+      this.scrubTime = time
+      this.$emit('seek', time)
+    },
+    onTouchScrubEnd(e) {
+      if (!this.isScrubbing) return
+      this.isScrubbing = false
+      const { time } = this.getTimeFromEvent(e)
+      this.scrubPercent = null
+      this.scrubTime = null
+      this.$emit('seek', time)
+
+      window.removeEventListener('touchmove', this.onTouchScrubMove)
+      window.removeEventListener('touchend', this.onTouchScrubEnd)
+    },
+    stopScrubbing() {
+      this.isScrubbing = false
+      this.scrubPercent = null
+      this.scrubTime = null
+      window.removeEventListener('mousemove', this.onScrubMove)
+      window.removeEventListener('mouseup', this.onScrubEnd)
+      window.removeEventListener('touchmove', this.onTouchScrubMove)
+      window.removeEventListener('touchend', this.onTouchScrubEnd)
     },
     // ================= Dragging =================
     startDrag(event) {
-      if (this.isResizing) return
-      if (event.target.closest('button, a, input, .resize-handle')) return
+      if (this.isResizing || this.isScrubbing) return
+      if (event.target.closest('button, a, input, .resize-handle, .mini-scrubber')) return
 
       this.isDragging = true
       const clientX = event.touches ? event.touches[0].clientX : event.clientX

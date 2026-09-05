@@ -1,5 +1,5 @@
 
-export function mountVideoElement({ isVideoEpisode, isFloatingMiniPlayer, videoVisible }) {
+export function mountVideoElement({ isVideoEpisode, isFloatingMiniPlayer, videoVisible, wasPlaying = false }) {
   if (typeof document === 'undefined') return
 
   const videoEl = document.getElementById('video-player')
@@ -10,12 +10,16 @@ export function mountVideoElement({ isVideoEpisode, isFloatingMiniPlayer, videoV
     return
   }
 
+  const shouldPlay = wasPlaying || (!videoEl.paused && !videoEl.ended)
   const mainContainer = document.getElementById('video-player-container')
   const miniContainer = document.getElementById('floating-mini-video-container')
 
   if (isFloatingMiniPlayer && miniContainer) {
     if (videoEl.parentElement !== miniContainer) {
       miniContainer.appendChild(videoEl)
+      if (shouldPlay && videoEl.paused) {
+        videoEl.play().catch(() => {})
+      }
     }
     videoEl.style.display = 'block'
     videoEl.style.width = '100%'
@@ -25,6 +29,9 @@ export function mountVideoElement({ isVideoEpisode, isFloatingMiniPlayer, videoV
   } else if (videoVisible && mainContainer) {
     if (videoEl.parentElement !== mainContainer) {
       mainContainer.appendChild(videoEl)
+      if (shouldPlay && videoEl.paused) {
+        videoEl.play().catch(() => {})
+      }
     }
     videoEl.style.display = 'block'
     videoEl.style.width = '100%'
@@ -34,6 +41,9 @@ export function mountVideoElement({ isVideoEpisode, isFloatingMiniPlayer, videoV
   } else {
     if (videoEl.parentElement !== document.body) {
       document.body.appendChild(videoEl)
+      if (shouldPlay && videoEl.paused) {
+        videoEl.play().catch(() => {})
+      }
     }
     videoEl.style.display = 'block'
     videoEl.style.position = 'fixed'

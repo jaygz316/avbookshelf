@@ -175,4 +175,22 @@ describe('FloatingMiniPlayer', () => {
       expect(spy.firstCall.args[0]).to.be.closeTo(50, 20)
     })
   })
+
+  it('emits seek when progress track is scrubbed with mouse drag', () => {
+    const seekSpy = cy.spy().as('seekSpy')
+    cy.mount(FloatingMiniPlayer, createMountOptions({
+      duration: 100,
+      currentTime: 10
+    }, {
+      seek: seekSpy
+    }))
+
+    cy.get('#floating-mini-player')
+      .find('.mini-scrubber')
+      .trigger('mousedown', { which: 1, clientX: 100, clientY: 50, force: true })
+      .trigger('mousemove', { clientX: 200, clientY: 50, force: true })
+      .trigger('mouseup', { force: true })
+
+    cy.get('@seekSpy').should('have.been.called')
+  })
 })
