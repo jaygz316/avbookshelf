@@ -356,6 +356,7 @@ export default {
       else if (action === this.$hotkeys.AudioPlayer.TOGGLE_PIP) this.$emit('togglePiP')
       else if (action === this.$hotkeys.AudioPlayer.CYCLE_PLAYER_SIZE) this.$emit('cycleSize')
       else if (action === this.$hotkeys.AudioPlayer.CYCLE_VIDEO_FIT) this.$emit('cycleVideoFit')
+      else if (action === this.$hotkeys.AudioPlayer.TOGGLE_MINI_PLAYER) this.$emit('toggleMiniPlayer')
     }
   },
   mounted() {
