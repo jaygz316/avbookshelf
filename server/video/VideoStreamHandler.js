@@ -79,7 +79,7 @@ class VideoStreamHandler {
     return {
       index: vf.index || 1,
       startOffset: 0,
-      duration: vf.duration || 0,
+      duration: vf.duration || ep.duration || 0,
       title: ep.title || metadata.filename || 'Video',
       contentUrl,
       mimeType: vf.mimeType || 'video/mp4',

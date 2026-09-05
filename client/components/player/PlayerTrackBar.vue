@@ -1,7 +1,15 @@
 <template>
   <div class="relative">
     <!-- Track -->
-    <div ref="track" class="w-full h-2 bg-gray-700 relative cursor-pointer transform duration-100 hover:scale-y-125 overflow-hidden" @mousemove="mousemoveTrack" @mouseleave="mouseleaveTrack" @click.stop="clickTrack">
+    <div
+      ref="track"
+      class="w-full h-2 bg-gray-700 relative cursor-pointer transform duration-100 hover:scale-y-125 overflow-hidden select-none"
+      @mousemove="mousemoveTrack"
+      @mouseleave="mouseleaveTrack"
+      @click.stop="clickTrack"
+      @mousedown.stop.prevent="startScrub"
+      @touchstart.stop.prevent="startTouchScrub"
+    >
       <div ref="readyTrack" class="h-full bg-gray-600 absolute top-0 left-0 pointer-events-none" />
       <div ref="bufferTrack" class="h-full bg-gray-500 absolute top-0 left-0 pointer-events-none" />
       <div ref="playedTrack" class="h-full bg-gray-200 absolute top-0 left-0 pointer-events-none" />
@@ -52,7 +60,10 @@ export default {
       playedTrackWidth: 0,
       readyTrackWidth: 0,
       bufferTrackWidth: 0,
-      useChapterTrack: false
+      useChapterTrack: false,
+      isScrubbing: false,
+      scrubTime: null,
+      resizeObserver: null
     }
   },
   watch: {
@@ -85,27 +96,87 @@ export default {
       this.updateBufferTrack()
       this.updatePlayedTrackWidth()
     },
-    clickTrack(e) {
-      if (this.loading) return
-
-      const offsetX = e.offsetX
-      const perc = offsetX / this.trackWidth
+    getTimeFromEvent(e) {
+      if (!this.$refs.track) return 0
+      const rect = this.$refs.track.getBoundingClientRect()
+      const width = Math.max(rect.width || this.trackWidth || 1, 1)
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX
+      const offsetX = Math.max(0, Math.min(clientX - rect.left, width))
+      const perc = offsetX / width
       const baseTime = this.useChapterTrack ? this.currentChapterStart : 0
       const duration = this.useChapterTrack ? this.currentChapterDuration : this.duration
-      const time = baseTime + perc * duration
-      if (isNaN(time) || time === null) {
-        console.error('Invalid time', perc, time)
-        return
-      }
+      return baseTime + perc * duration
+    },
+    clickTrack(e) {
+      if (this.loading) return
+      const time = this.getTimeFromEvent(e)
+      if (isNaN(time) || time === null) return
       this.$emit('seek', time)
+    },
+    startScrub(e) {
+      if (this.loading) return
+      this.isScrubbing = true
+      const time = this.getTimeFromEvent(e)
+      this.scrubTime = time
+      this.updatePlayedTrackWidth()
+      this.$emit('seek', time)
+
+      window.addEventListener('mousemove', this.onScrubMove)
+      window.addEventListener('mouseup', this.onScrubEnd)
+    },
+    onScrubMove(e) {
+      if (!this.isScrubbing) return
+      const time = this.getTimeFromEvent(e)
+      this.scrubTime = time
+      this.updatePlayedTrackWidth()
+      this.$emit('seek', time)
+    },
+    onScrubEnd(e) {
+      if (!this.isScrubbing) return
+      this.isScrubbing = false
+      const time = this.getTimeFromEvent(e)
+      this.scrubTime = null
+      this.$emit('seek', time)
+
+      window.removeEventListener('mousemove', this.onScrubMove)
+      window.removeEventListener('mouseup', this.onScrubEnd)
+    },
+    startTouchScrub(e) {
+      if (this.loading) return
+      this.isScrubbing = true
+      const time = this.getTimeFromEvent(e)
+      this.scrubTime = time
+      this.updatePlayedTrackWidth()
+      this.$emit('seek', time)
+
+      window.addEventListener('touchmove', this.onTouchScrubMove, { passive: false })
+      window.addEventListener('touchend', this.onTouchScrubEnd)
+    },
+    onTouchScrubMove(e) {
+      if (!this.isScrubbing) return
+      e.preventDefault()
+      const time = this.getTimeFromEvent(e)
+      this.scrubTime = time
+      this.updatePlayedTrackWidth()
+      this.$emit('seek', time)
+    },
+    onTouchScrubEnd(e) {
+      if (!this.isScrubbing) return
+      this.isScrubbing = false
+      this.scrubTime = null
+      window.removeEventListener('touchmove', this.onTouchScrubMove)
+      window.removeEventListener('touchend', this.onTouchScrubEnd)
     },
     setBufferTime(time) {
       this.bufferTime = time
       this.updateBufferTrack()
     },
     updateBufferTrack() {
+      if (!this.$refs.track) return
+      if (!this.trackWidth) this.setTrackWidth()
       const time = this.useChapterTrack ? Math.max(0, this.bufferTime - this.currentChapterStart) : this.bufferTime
       const duration = this.useChapterTrack ? this.currentChapterDuration : this.duration
+      if (!duration || !this.trackWidth) return
 
       var bufferlen = (time / duration) * this.trackWidth
       bufferlen = Math.round(bufferlen)
@@ -118,6 +189,8 @@ export default {
       this.updateReadyTrack()
     },
     updateReadyTrack() {
+      if (!this.$refs.track) return
+      if (!this.trackWidth) this.setTrackWidth()
       const widthReady = Math.round(this.trackWidth * this.percentReady)
       if (this.readyTrackWidth === widthReady) return
       this.readyTrackWidth = widthReady
@@ -128,8 +201,12 @@ export default {
       this.updatePlayedTrackWidth()
     },
     updatePlayedTrackWidth() {
-      const time = this.useChapterTrack ? Math.max(0, this.currentTime - this.currentChapterStart) : this.currentTime
+      if (!this.$refs.track) return
+      if (!this.trackWidth) this.setTrackWidth()
+      const activeTime = this.isScrubbing && this.scrubTime !== null ? this.scrubTime : this.currentTime
+      const time = this.useChapterTrack ? Math.max(0, activeTime - this.currentChapterStart) : activeTime
       const duration = this.useChapterTrack ? this.currentChapterDuration : this.duration
+      if (!duration || !this.trackWidth) return
 
       const ptWidth = Math.round((time / duration) * this.trackWidth)
       if (this.playedTrackWidth === ptWidth) {
@@ -139,6 +216,7 @@ export default {
       this.playedTrackWidth = ptWidth
     },
     setChapterTicks() {
+      if (!this.duration) return
       this.chapterTicks = this.chapters.map((chap) => {
         const perc = chap.start / this.duration
         return {
@@ -148,33 +226,37 @@ export default {
       })
     },
     mousemoveTrack(e) {
-      if (this.isMobile) {
+      if (this.isMobile || !this.$refs.track) {
         return
       }
-      const offsetX = e.offsetX
+      const rect = this.$refs.track.getBoundingClientRect()
+      const width = Math.max(rect.width || this.trackWidth || 1, 1)
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX
+      const offsetX = Math.max(0, Math.min(clientX - rect.left, width))
 
       const baseTime = this.useChapterTrack ? this.currentChapterStart : 0
       const duration = this.useChapterTrack ? this.currentChapterDuration : this.duration
-      const progressTime = (offsetX / this.trackWidth) * duration
+      const progressTime = (offsetX / width) * duration
       const totalTime = baseTime + progressTime
 
       if (this.$refs.hoverTimestamp) {
-        var width = this.$refs.hoverTimestamp.clientWidth
+        var hoverWidth = this.$refs.hoverTimestamp.clientWidth
         this.$refs.hoverTimestamp.style.opacity = 1
-        var posLeft = offsetX - width / 2
-        if (posLeft + width + this.trackOffsetLeft > window.innerWidth) {
-          posLeft = window.innerWidth - width - this.trackOffsetLeft
-        } else if (posLeft < -this.trackOffsetLeft) {
-          posLeft = -this.trackOffsetLeft
+        var posLeft = offsetX - hoverWidth / 2
+        const trackLeft = rect.left
+        if (posLeft + hoverWidth + trackLeft > window.innerWidth) {
+          posLeft = window.innerWidth - hoverWidth - trackLeft
+        } else if (posLeft < -trackLeft) {
+          posLeft = -trackLeft
         }
         this.$refs.hoverTimestamp.style.left = posLeft + 'px'
       }
 
       if (this.$refs.hoverTimestampArrow) {
-        var width = this.$refs.hoverTimestampArrow.clientWidth
-        var posLeft = offsetX - width / 2
+        var arrowWidth = this.$refs.hoverTimestampArrow.clientWidth
+        var arrowPosLeft = offsetX - arrowWidth / 2
         this.$refs.hoverTimestampArrow.style.opacity = 1
-        this.$refs.hoverTimestampArrow.style.left = posLeft + 'px'
+        this.$refs.hoverTimestampArrow.style.left = arrowPosLeft + 'px'
       }
       if (this.$refs.hoverTimestampText) {
         var hoverText = this.$secondsToTimestamp(progressTime / this._playbackRate)
@@ -203,8 +285,9 @@ export default {
     },
     setTrackWidth() {
       if (this.$refs.track) {
-        this.trackWidth = this.$refs.track.clientWidth
-        this.trackOffsetLeft = this.$refs.track.getBoundingClientRect().left
+        const rect = this.$refs.track.getBoundingClientRect()
+        this.trackWidth = rect.width || this.$refs.track.clientWidth
+        this.trackOffsetLeft = rect.left
       } else {
         console.error('Track not loaded', this.$refs)
       }
@@ -220,9 +303,23 @@ export default {
     this.setTrackWidth()
     this.setChapterTicks()
     window.addEventListener('resize', this.windowResize)
+    if (typeof ResizeObserver !== 'undefined' && this.$refs.track) {
+      this.resizeObserver = new ResizeObserver(() => {
+        this.windowResize()
+      })
+      this.resizeObserver.observe(this.$refs.track)
+    }
   },
   beforeDestroy() {
     window.removeEventListener('resize', this.windowResize)
+    window.removeEventListener('mousemove', this.onScrubMove)
+    window.removeEventListener('mouseup', this.onScrubEnd)
+    window.removeEventListener('touchmove', this.onTouchScrubMove)
+    window.removeEventListener('touchend', this.onTouchScrubEnd)
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect()
+      this.resizeObserver = null
+    }
   }
 }
 </script>

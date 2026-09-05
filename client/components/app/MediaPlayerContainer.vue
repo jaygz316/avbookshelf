@@ -468,12 +468,26 @@ export default {
       this.updateVideoElementMount()
     },
     returnFromMiniPlayer() {
+      const videoEl = document.getElementById('video-player') || this.playerHandler?.player?.player
+      const mainContainer = document.getElementById('video-player-container')
+      if (videoEl && mainContainer && videoEl.parentElement !== mainContainer) {
+        mainContainer.appendChild(videoEl)
+        videoEl.style.display = 'block'
+        videoEl.style.width = '100%'
+        videoEl.style.height = '100%'
+        videoEl.style.opacity = '1'
+        videoEl.style.position = 'static'
+      }
       this.$store.commit('setFloatingMiniPlayer', false)
       this.$store.commit('setVideoPlayerSize', 'theater')
       this.updatePlayerHeightCss()
       this.updateVideoElementMount()
     },
     closeMiniPlayer() {
+      const videoEl = document.getElementById('video-player') || this.playerHandler?.player?.player
+      if (videoEl && videoEl.parentElement !== document.body) {
+        document.body.appendChild(videoEl)
+      }
       this.$store.commit('setFloatingMiniPlayer', false)
       this.updatePlayerHeightCss()
       this.updateVideoElementMount()
@@ -488,7 +502,7 @@ export default {
     },
     updateVideoElementMount() {
       this.$nextTick(() => {
-        const videoEl = document.getElementById('video-player')
+        const videoEl = document.getElementById('video-player') || this.playerHandler?.player?.player
         if (!videoEl) return
 
         if (this.videoPoster) {
@@ -501,11 +515,18 @@ export default {
           videoEl.style.objectFit = this.videoFitMode
         }
 
+        const wasPlaying = this.isPlaying
+
         mountVideoElement({
           isVideoEpisode: this.isVideoEpisode,
           isFloatingMiniPlayer: this.isFloatingMiniPlayer,
-          videoVisible: this.videoVisible
+          videoVisible: this.videoVisible,
+          wasPlaying
         })
+
+        if (wasPlaying && videoEl.paused) {
+          videoEl.play().catch(() => {})
+        }
       })
     },
     closePlayer() {

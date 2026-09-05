@@ -269,9 +269,10 @@ export default class LocalVideoPlayer extends EventEmitter {
   }
 
   getDuration() {
-    if (!this.videoTracks.length) return 0
+    if (!this.videoTracks.length) return this.player?.duration || 0
     var lastTrack = this.videoTracks[this.videoTracks.length - 1]
-    return lastTrack.startOffset + lastTrack.duration
+    const trackDuration = lastTrack.startOffset + (lastTrack.duration || 0)
+    return trackDuration || this.player?.duration || 0
   }
 
   setPlaybackRate(playbackRate) {
@@ -285,11 +286,11 @@ export default class LocalVideoPlayer extends EventEmitter {
 
     this.playWhenReady = playWhenReady
 
-    if (this.isHlsTranscode) {
-      var offsetTime = time - (this.currentTrack.startOffset || 0)
+    if (this.isHlsTranscode || this.videoTracks.length <= 1) {
+      var offsetTime = time - (this.currentTrack?.startOffset || 0)
       this.player.currentTime = Math.max(0, offsetTime)
     } else {
-      if (time < this.currentTrack.startOffset || time > this.currentTrack.startOffset + this.currentTrack.duration) {
+      if (time < this.currentTrack.startOffset || (this.currentTrack.duration && time > this.currentTrack.startOffset + this.currentTrack.duration)) {
         // Change Track
         var trackIndex = this.videoTracks.findIndex((t) => time >= t.startOffset && time < t.startOffset + t.duration)
         if (trackIndex >= 0) {
@@ -300,9 +301,12 @@ export default class LocalVideoPlayer extends EventEmitter {
             this.playWhenReady = true
           }
           this.loadCurrentTrack()
+        } else {
+          var offsetTime = time - (this.currentTrack?.startOffset || 0)
+          this.player.currentTime = Math.max(0, offsetTime)
         }
       } else {
-        var offsetTime = time - (this.currentTrack.startOffset || 0)
+        var offsetTime = time - (this.currentTrack?.startOffset || 0)
         this.player.currentTime = Math.max(0, offsetTime)
       }
     }
