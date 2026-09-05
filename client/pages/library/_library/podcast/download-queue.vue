@@ -46,7 +46,7 @@
           </div>
         </template>
 
-        <tables-podcast-download-queue-table v-if="episodeDownloadsQueued.length || episodesDownloading.length" :queue="episodeDownloadsQueued" :downloading="episodesDownloading[0] || null"></tables-podcast-download-queue-table>
+        <tables-podcast-download-queue-table v-if="episodeDownloadsQueued.length || episodesDownloading.length || isPausedForNetwork" :queue="episodeDownloadsQueued" :downloading="episodesDownloading[0] || null" :is-paused-for-network="isPausedForNetwork"></tables-podcast-download-queue-table>
       </div>
     </div>
   </div>
@@ -75,6 +75,7 @@ export default {
     return {
       episodesDownloading: [],
       episodeDownloadsQueued: [],
+      isPausedForNetwork: false,
       processing: false
     }
   },
@@ -87,6 +88,9 @@ export default {
     }
   },
   methods: {
+    episodeDownloadNetworkStatus({ isPausedForNetwork }) {
+      this.isPausedForNetwork = !!isPausedForNetwork
+    },
     episodeDownloadQueued(episodeDownload) {
       if (episodeDownload.libraryId === this.libraryId) {
         this.episodeDownloadsQueued.push(episodeDownload)
@@ -112,6 +116,7 @@ export default {
         return null
       })
       this.processing = false
+      this.isPausedForNetwork = !!queuePayload?.isPausedForNetwork
       this.episodeDownloadsQueued = queuePayload?.queue || []
 
       if (queuePayload?.currentDownload) {
@@ -126,6 +131,7 @@ export default {
       this.$root.socket.on('episode_download_started', this.episodeDownloadStarted)
       this.$root.socket.on('episode_download_finished', this.episodeDownloadFinished)
       this.$root.socket.on('episode_download_progress', this.episodeDownloadProgress)
+      this.$root.socket.on('episode_download_network_status', this.episodeDownloadNetworkStatus)
     },
     episodeDownloadProgress(progressData) {
       if (progressData.libraryId === this.libraryId || !progressData.libraryId) {
@@ -159,6 +165,7 @@ export default {
     this.$root.socket.off('episode_download_started', this.episodeDownloadStarted)
     this.$root.socket.off('episode_download_finished', this.episodeDownloadFinished)
     this.$root.socket.off('episode_download_progress', this.episodeDownloadProgress)
+    this.$root.socket.off('episode_download_network_status', this.episodeDownloadNetworkStatus)
   }
 }
 </script>

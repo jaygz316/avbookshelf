@@ -1,5 +1,13 @@
 <template>
   <div class="w-full my-2">
+    <!-- Offline / Network Paused Banner -->
+    <div v-if="isPausedForNetwork" class="w-full bg-yellow-900/40 border border-yellow-600/50 rounded-md px-4 py-3 mb-3 flex items-center gap-3 text-yellow-300">
+      <span class="material-symbols text-xl">wifi_off</span>
+      <div class="text-sm font-medium">
+        {{ $strings.MessageWaitingForConnection || 'Internet connection lost. Downloads are paused and will automatically continue when connection is restored.' }}
+      </div>
+    </div>
+
     <!-- Currently downloading episode with progress -->
     <div v-if="downloading" class="w-full bg-success/10 border border-success/30 rounded-md px-4 py-3 mb-3">
       <div class="flex items-center justify-between mb-1">
@@ -82,6 +90,10 @@ export default {
     downloading: {
       type: Object,
       default: null
+    },
+    isPausedForNetwork: {
+      type: Boolean,
+      default: false
     },
     libraryItemId: String
   },

@@ -384,6 +384,11 @@ module.exports.downloadFile = (url, filepath, contentTypeFilter = null, onProgre
           }
         })
 
+        response.data.on('error', (err) => {
+          writer.destroy()
+          reject(err)
+        })
+
         writer.on('finish', resolve)
         writer.on('error', reject)
       })

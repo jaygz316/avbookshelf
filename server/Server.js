@@ -196,6 +196,7 @@ class Server {
     const libraries = await Database.libraryModel.getAllWithFolders()
     await this.cronManager.init(libraries)
     this.apiCacheManager.init()
+    await this.podcastManager.init()
 
     if (Database.serverSettings.scannerDisableWatcher) {
       Logger.info(`[Server] Watcher is disabled`)
@@ -554,6 +555,7 @@ class Server {
    */
   async stop() {
     Logger.info('=== Stopping Server ===')
+    await this.podcastManager?.stop?.()
     Watcher.close()
     Logger.info('[Server] Watcher Closed')
     await SocketAuthority.close()
