@@ -70,6 +70,7 @@ const KeyNames = {
   40: 'ArrowDown',
   67: 'KeyC',
   70: 'KeyF',
+  73: 'KeyI',
   76: 'KeyL',
   77: 'KeyM',
   80: 'KeyP',
@@ -90,7 +91,8 @@ const Hotkeys = {
     TOGGLE_FULLSCREEN: 'KeyF',
     TOGGLE_PIP: 'KeyP',
     CYCLE_PLAYER_SIZE: 'KeyT',
-    CYCLE_VIDEO_FIT: 'KeyC'
+    CYCLE_VIDEO_FIT: 'KeyC',
+    TOGGLE_MINI_PLAYER: 'KeyI'
   },
   EReader: {
     NEXT_PAGE: 'ArrowRight',

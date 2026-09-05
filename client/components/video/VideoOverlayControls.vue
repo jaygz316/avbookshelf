@@ -8,6 +8,17 @@
   >
         <div class="w-full flex items-center justify-between px-4 pt-3 pb-8 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-auto">
       <div class="flex items-center gap-2 min-w-0 pr-4">
+        <!-- Minimize Player (Down Arrow) -->
+        <ui-tooltip direction="bottom" text="Minimize Player (M)">
+          <button
+            aria-label="Minimize Player"
+            class="overlay-btn mr-1 shrink-0"
+            @click.stop="$emit('detachMiniPlayer')"
+          >
+            <span class="material-symbols text-lg sm:text-xl">keyboard_arrow_down</span>
+          </button>
+        </ui-tooltip>
+
         <div class="min-w-0">
           <p class="text-white text-sm sm:text-base font-semibold truncate drop-shadow-md">
             {{ title || 'No Title' }}
@@ -21,8 +32,8 @@
         </span>
       </div>
 
-            <div class="flex items-center gap-1 sm:gap-1.5 shrink-0">
-                <ui-tooltip direction="bottom" :text="`Fit: ${videoFitLabel}`">
+      <div class="flex items-center gap-1 sm:gap-1.5 shrink-0">
+        <ui-tooltip direction="bottom" :text="`Fit: ${videoFitLabel}`">
           <button
             :aria-label="`Fit: ${videoFitLabel}`"
             class="overlay-btn"
@@ -32,7 +43,7 @@
           </button>
         </ui-tooltip>
 
-                <ui-tooltip v-if="isPiPSupported" direction="bottom" :text="isPiPActive ? 'Exit Picture in Picture' : 'Picture in Picture'">
+        <ui-tooltip v-if="isPiPSupported" direction="bottom" :text="isPiPActive ? 'Exit Picture in Picture' : 'Picture in Picture'">
           <button
             :aria-label="isPiPActive ? 'Exit Picture in Picture' : 'Picture in Picture'"
             class="overlay-btn"
@@ -43,9 +54,10 @@
           </button>
         </ui-tooltip>
 
-                <ui-tooltip direction="bottom" text="Detach Mini Player">
+        <!-- Pop Out Floating Player -->
+        <ui-tooltip direction="bottom" text="Pop Out Floating Player (I)">
           <button
-            aria-label="Detach Mini Player"
+            aria-label="Pop Out Floating Player"
             class="overlay-btn"
             @click.stop="$emit('detachMiniPlayer')"
           >

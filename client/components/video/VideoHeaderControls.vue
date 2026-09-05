@@ -1,8 +1,9 @@
 <template>
   <div class="flex items-center">
-        <ui-tooltip direction="top" text="Detach Mini Player">
+        <!-- Detach / Pop Out Floating Player -->
+    <ui-tooltip direction="top" text="Pop Out Floating Player (I)">
       <button
-        aria-label="Detach Mini Player"
+        aria-label="Pop Out Floating Player"
         class="material-symbols sm:px-2 py-1 lg:p-4 cursor-pointer text-xl sm:text-2xl text-gray-300 hover:text-white"
         @click="detachToMiniPlayer"
       >
@@ -77,7 +78,9 @@ export default {
   },
   methods: {
     detachToMiniPlayer() {
-      this.$store.commit('setIsFloatingMiniPlayer', true)
+      this.$emit('detachMiniPlayer')
+      this.$store.commit('setFloatingMiniPlayer', true)
+      this.$store.commit('setVideoPlayerSize', 'compact')
     },
     togglePiP() {
       this.playerHandler?.togglePiP?.()

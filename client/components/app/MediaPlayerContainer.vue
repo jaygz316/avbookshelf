@@ -40,7 +40,7 @@
           <div class="grow" />
 
           <!-- Video Controls in Header Bar when video is available -->
-          <video-header-controls v-if="isVideoEpisode" :player-handler="playerHandler" />
+          <video-header-controls v-if="isVideoEpisode" :player-handler="playerHandler" @detachMiniPlayer="detachToMiniPlayer" />
 
           <ui-tooltip direction="top" :text="$strings.LabelClosePlayer">
             <button :aria-label="$strings.LabelClosePlayer" class="material-symbols sm:px-2 py-1 lg:p-4 cursor-pointer text-xl sm:text-2xl" @click="closePlayer">close</button>
@@ -109,6 +109,7 @@
         @togglePiP="togglePiP"
         @cycleSize="cyclePlayerSize"
         @cycleVideoFit="cycleVideoFit"
+        @toggleMiniPlayer="toggleFloatingMiniPlayer"
       />
 
       <!-- Modals -->
@@ -130,6 +131,7 @@
       @playPause="playPause"
       @jumpForward="jumpForward"
       @jumpBackward="jumpBackward"
+      @seek="seek"
       @returnToPlayer="returnFromMiniPlayer"
       @close="closeMiniPlayer"
     />
@@ -462,16 +464,27 @@ export default {
     detachToMiniPlayer() {
       this.$store.commit('setFloatingMiniPlayer', true)
       this.$store.commit('setVideoPlayerSize', 'compact')
+      this.updatePlayerHeightCss()
       this.updateVideoElementMount()
     },
     returnFromMiniPlayer() {
       this.$store.commit('setFloatingMiniPlayer', false)
       this.$store.commit('setVideoPlayerSize', 'theater')
+      this.updatePlayerHeightCss()
       this.updateVideoElementMount()
     },
     closeMiniPlayer() {
       this.$store.commit('setFloatingMiniPlayer', false)
+      this.updatePlayerHeightCss()
       this.updateVideoElementMount()
+    },
+    toggleFloatingMiniPlayer() {
+      if (!this.isVideoEpisode) return
+      if (this.isFloatingMiniPlayer) {
+        this.returnFromMiniPlayer()
+      } else {
+        this.detachToMiniPlayer()
+      }
     },
     updateVideoElementMount() {
       this.$nextTick(() => {
