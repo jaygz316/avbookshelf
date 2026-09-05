@@ -179,7 +179,8 @@ module.exports.downloadPodcastEpisode = (podcastEpisodeDownload) => {
     if (!response) {
       return resolve({
         success: false,
-        isRequestError: true
+        isRequestError: true,
+        error: lastError
       })
     }
 
@@ -202,6 +203,11 @@ module.exports.downloadPodcastEpisode = (podcastEpisodeDownload) => {
     let lastTime = Date.now()
     let lastBytes = 0
     let lastEmitTime = 0
+
+    response.data.on('error', (streamErr) => {
+      Logger.error(`[FfmpegHelpers] Stream error while downloading "${podcastEpisodeDownload.url}":`, streamErr)
+      lastError = streamErr
+    })
 
     response.data.on('data', (chunk) => {
       downloadedBytes += chunk.length
@@ -290,7 +296,9 @@ module.exports.downloadPodcastEpisode = (podcastEpisodeDownload) => {
         Logger.error(`Full stderr dump for episode url "${podcastEpisodeDownload.url}": ${stderrLines.join('\n')}`)
       }
       resolve({
-        success: false
+        success: false,
+        error: lastError || err,
+        stderr: stderrLines.join('\n')
       })
     })
     ffmpeg.on('progress', (progress) => {

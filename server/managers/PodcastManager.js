@@ -14,6 +14,7 @@ const opmlGenerator = require('../utils/generators/opmlGenerator')
 const prober = require('../utils/prober')
 const ffmpegHelpers = require('../utils/ffmpegHelpers')
 const PodcastFinder = require('../finders/PodcastFinder')
+const { isOnline, isNetworkError } = require('../utils/networkUtils')
 
 const TaskManager = require('./TaskManager')
 const CoverManager = require('../managers/CoverManager')
@@ -34,15 +35,183 @@ class PodcastManager {
     /** @type {PodcastEpisodeDownload} */
     this.currentDownload = null
 
+    this.isQueuePausedForNetwork = false
+    this.networkRecoveryTimer = null
+    this.isStopping = false
+
     this.failedCheckMap = {}
     this.MaxFailedEpisodeChecks = global.MaxFailedEpisodeChecks
+  }
+
+  get downloadQueuePath() {
+    return Path.join(global.MetadataPath || '', 'downloadQueue.json')
+  }
+
+  /**
+   * Save current download and queued items to disk for crash resilience
+   */
+  async saveQueue() {
+    try {
+      if (!global.MetadataPath) return
+      const queueData = {
+        isPausedForNetwork: this.isQueuePausedForNetwork,
+        currentDownload: this.currentDownload ? this.currentDownload.toJSONForStorage() : null,
+        queue: this.downloadQueue.map((item) => item.toJSONForStorage())
+      }
+      const tmpPath = `${this.downloadQueuePath}.tmp`
+      await fs.writeFile(tmpPath, JSON.stringify(queueData, null, 2), 'utf-8')
+      await fs.rename(tmpPath, this.downloadQueuePath)
+    } catch (err) {
+      Logger.error('[PodcastManager] Failed to save download queue to disk:', err)
+    }
+  }
+
+  /**
+   * Load download queue from disk on server startup
+   */
+  async loadQueue() {
+    try {
+      if (!global.MetadataPath || !(await fs.pathExists(this.downloadQueuePath))) return
+
+      const raw = await fs.readFile(this.downloadQueuePath, 'utf-8').catch(() => null)
+      if (!raw) return
+      const queueData = JSON.parse(raw)
+      if (!queueData) return
+
+      const restoredQueue = []
+
+      // If an item was actively downloading when the server stopped/crashed, restore it at head of queue
+      if (queueData.currentDownload) {
+        const item = queueData.currentDownload
+        const libraryItem = await Database.libraryItemModel.getExpandedById(item.libraryItemId).catch(() => null)
+        if (libraryItem) {
+          const download = PodcastEpisodeDownload.fromJSON(item, libraryItem)
+          if (download) {
+            download.isRetrying = true
+            // If partial file exists on disk, remove it so fresh download won't fail or append random UUID
+            if (download.targetPath && (await fs.pathExists(download.targetPath))) {
+              try {
+                await fs.remove(download.targetPath)
+              } catch (e) {
+                Logger.warn(`[PodcastManager] Could not remove partial file "${download.targetPath}":`, e.message)
+              }
+            }
+            restoredQueue.push(download)
+          }
+        }
+      }
+
+      if (Array.isArray(queueData.queue)) {
+        for (const item of queueData.queue) {
+          const libraryItem = await Database.libraryItemModel.getExpandedById(item.libraryItemId).catch(() => null)
+          if (libraryItem) {
+            const download = PodcastEpisodeDownload.fromJSON(item, libraryItem)
+            if (download) {
+              restoredQueue.push(download)
+            }
+          }
+        }
+      }
+
+      this.downloadQueue = restoredQueue
+      if (this.downloadQueue.length) {
+        Logger.info(`[PodcastManager] Restored ${this.downloadQueue.length} download(s) from persistent queue`)
+      }
+      await this.saveQueue()
+    } catch (err) {
+      Logger.error('[PodcastManager] Failed to load download queue:', err)
+    }
+  }
+
+  /**
+   * Initialize manager on server startup: restore queue and resume if network is available
+   */
+  async init() {
+    await this.loadQueue()
+
+    if (this.downloadQueue.length > 0) {
+      const online = await isOnline(4000)
+      if (online) {
+        Logger.info(`[PodcastManager] Internet available. Resuming download queue (${this.downloadQueue.length} items)...`)
+        this.processQueue()
+      } else {
+        Logger.warn(`[PodcastManager] Internet offline on startup. Pausing download queue (${this.downloadQueue.length} items) and waiting for connectivity...`)
+        this.pauseQueueForNetwork()
+      }
+    }
+  }
+
+  /**
+   * Graceful server shutdown: preserve in-flight download back into queue and persist
+   */
+  async stop() {
+    this.isStopping = true
+    if (this.networkRecoveryTimer) {
+      clearInterval(this.networkRecoveryTimer)
+      this.networkRecoveryTimer = null
+    }
+
+    if (this.currentDownload) {
+      Logger.info(`[PodcastManager] Server shutting down, preserving in-flight download "${this.currentDownload.episodeTitle}" in queue`)
+      const dl = this.currentDownload
+      this.currentDownload = null
+      this.downloadQueue.unshift(dl)
+    }
+    await this.saveQueue()
+  }
+
+  /**
+   * Pause queue when internet is lost and begin polling for network recovery
+   */
+  pauseQueueForNetwork() {
+    this.isQueuePausedForNetwork = true
+    SocketAuthority.emitter('episode_download_network_status', { isPausedForNetwork: true })
+    this.startNetworkRecoveryMonitor()
+  }
+
+  /**
+   * Polling monitor to detect when internet returns and resume queue
+   */
+  startNetworkRecoveryMonitor() {
+    if (this.networkRecoveryTimer || this.isStopping) return
+    Logger.info('[PodcastManager] Starting network recovery monitor (checking every 10s)...')
+    this.networkRecoveryTimer = setInterval(async () => {
+      try {
+        const online = await isOnline(4000)
+        if (online) {
+          Logger.info(`[PodcastManager] Internet connection restored! Resuming download queue (${this.downloadQueue.length} items)...`)
+          clearInterval(this.networkRecoveryTimer)
+          this.networkRecoveryTimer = null
+          this.isQueuePausedForNetwork = false
+          SocketAuthority.emitter('episode_download_network_status', { isPausedForNetwork: false })
+          await this.saveQueue()
+          this.processQueue()
+        } else {
+          Logger.debug('[PodcastManager] Network recovery check: still offline...')
+        }
+      } catch (err) {
+        Logger.debug('[PodcastManager] Network recovery check error:', err.message)
+      }
+    }, 10000)
+  }
+
+  /**
+   * Process next item in download queue
+   */
+  async processQueue() {
+    if (this.isStopping || this.isQueuePausedForNetwork || this.currentDownload || !this.downloadQueue.length) {
+      return
+    }
+    const nextDownload = this.downloadQueue.shift()
+    await this.saveQueue()
+    this.startPodcastEpisodeDownload(nextDownload)
   }
 
   getEpisodeDownloadsInQueue(libraryItemId) {
     return this.downloadQueue.filter((d) => d.libraryItemId === libraryItemId)
   }
 
-  clearDownloadQueue(libraryItemId = null) {
+  async clearDownloadQueue(libraryItemId = null) {
     if (!this.downloadQueue.length) return
 
     if (!libraryItemId) {
@@ -53,6 +222,17 @@ class PodcastManager {
       Logger.info(`[PodcastManager] Clearing downloads in queue for item "${libraryItemId}" (${itemDownloads.length})`)
       this.downloadQueue = this.downloadQueue.filter((d) => d.libraryItemId !== libraryItemId)
       SocketAuthority.emitter('episode_download_queue_cleared', libraryItemId)
+    }
+    await this.saveQueue()
+  }
+
+  async removeDownloadFromQueue(downloadId) {
+    if (!downloadId) return
+    const initialLen = this.downloadQueue.length
+    this.downloadQueue = this.downloadQueue.filter((d) => d.id !== downloadId)
+    if (this.downloadQueue.length !== initialLen) {
+      Logger.info(`[PodcastManager] Removed download ${downloadId} from queue`)
+      await this.saveQueue()
     }
   }
 
@@ -87,6 +267,19 @@ class PodcastManager {
         return
       }
       this.downloadQueue.push(podcastEpisodeDownload)
+      await this.saveQueue()
+      SocketAuthority.emitter('episode_download_queued', podcastEpisodeDownload.toJSONForClient())
+      return
+    }
+
+    if (this.isQueuePausedForNetwork) {
+      if (this.downloadQueue.some((d) => d.url === podcastEpisodeDownload.url && d.libraryItemId === podcastEpisodeDownload.libraryItemId)) {
+        Logger.warn(`[PodcastManager] Episode already in queue: "${podcastEpisodeDownload.episodeTitle}"`)
+        return
+      }
+      Logger.warn(`[PodcastManager] Network is offline. Queuing episode download: "${podcastEpisodeDownload.episodeTitle}"`)
+      this.downloadQueue.push(podcastEpisodeDownload)
+      await this.saveQueue()
       SocketAuthority.emitter('episode_download_queued', podcastEpisodeDownload.toJSONForClient())
       return
     }
@@ -108,9 +301,20 @@ class PodcastManager {
 
     SocketAuthority.emitter('episode_download_started', podcastEpisodeDownload.toJSONForClient())
     this.currentDownload = podcastEpisodeDownload
+    await this.saveQueue()
 
     let success = false
+    let downloadError = null
+    let downloadStderr = ''
+    let isNetworkPaused = false
+
     try {
+      if (this.currentDownload.isRetrying && this.currentDownload.targetPath) {
+        if (await fs.pathExists(this.currentDownload.targetPath)) {
+          await fs.remove(this.currentDownload.targetPath).catch(() => {})
+        }
+      }
+
       // If this file already exists then append a uuid to the filename
       //  e.g. "/tagesschau 20 Uhr.mp3" becomes "/tagesschau 20 Uhr (ep_asdfasdf).mp3"
       //  this handles podcasts where every title is the same (ref https://github.com/advplyr/audiobookshelf/issues/1802)
@@ -162,6 +366,8 @@ class PodcastManager {
           const downloadResult = await ytDlpManager
             .downloadVideo(this.currentDownload.url, this.currentDownload.libraryItem.path, filename, quality, onProgress)
             .catch((error) => {
+              downloadError = error
+              downloadStderr = error?.stderr || ''
               Logger.error(`[PodcastManager] yt-dlp download failed for "${this.currentDownload.episodeTitle}":`, error)
               return null
             })
@@ -181,9 +387,14 @@ class PodcastManager {
       } else {
         // Download episode and tag it
         const ffmpegDownloadResponse = await ffmpegHelpers.downloadPodcastEpisode(this.currentDownload).catch((error) => {
+          downloadError = error
           Logger.error(`[PodcastManager] Podcast Episode download failed`, error)
         })
         success = !!ffmpegDownloadResponse?.success
+        if (!success) {
+          if (ffmpegDownloadResponse?.error) downloadError = ffmpegDownloadResponse.error
+          if (ffmpegDownloadResponse?.stderr) downloadStderr = ffmpegDownloadResponse.stderr
+        }
 
         if (success) {
           // Attempt to ffprobe and add podcast episode media file
@@ -204,6 +415,7 @@ class PodcastManager {
           success = await downloadFile(this.currentDownload.url, this.currentDownload.targetPath, null, onProgress)
             .then(() => true)
             .catch((error) => {
+              downloadError = error
               Logger.error(`[PodcastManager] Podcast Episode download failed`, error)
               return false
             })
@@ -223,6 +435,58 @@ class PodcastManager {
         this.currentDownload.setFinished(true)
         task.setFinished()
       } else {
+        const isNetErr = isNetworkError(downloadError, downloadStderr)
+        const online = await isOnline(4000)
+
+        if (isNetErr || !online) {
+          if (!online) {
+            Logger.warn(`[PodcastManager] Network outage detected while downloading "${this.currentDownload.episodeTitle}". Pausing queue until connection returns.`)
+            isNetworkPaused = true
+            this.currentDownload.isRetrying = true
+            this.currentDownload.setProgress(null, null, null)
+            const pausedDl = this.currentDownload
+            this.currentDownload = null
+            this.downloadQueue.unshift(pausedDl)
+            await this.saveQueue()
+
+            if (pausedDl.libraryItem?.path) Watcher.removeIgnoreDir(pausedDl.libraryItem.path)
+            if (pausedDl.targetPath) Watcher.ignoreFilePathsDownloading.delete(pausedDl.targetPath)
+
+            TaskManager.taskFinished(task)
+            SocketAuthority.emitter('episode_download_finished', pausedDl.toJSONForClient())
+            SocketAuthority.emitter('episode_download_queued', pausedDl.toJSONForClient())
+
+            this.pauseQueueForNetwork()
+            return
+          } else {
+            this.currentDownload.networkRetryCount = (this.currentDownload.networkRetryCount || 0) + 1
+            if (this.currentDownload.networkRetryCount <= 3) {
+              Logger.info(`[PodcastManager] Transient network error downloading "${this.currentDownload.episodeTitle}". Retrying in 5s (attempt ${this.currentDownload.networkRetryCount}/3)...`)
+              isNetworkPaused = true
+              this.currentDownload.isRetrying = true
+              this.currentDownload.setProgress(null, null, null)
+              const retryingDl = this.currentDownload
+              this.currentDownload = null
+              this.downloadQueue.unshift(retryingDl)
+              await this.saveQueue()
+
+              if (retryingDl.libraryItem?.path) Watcher.removeIgnoreDir(retryingDl.libraryItem.path)
+              if (retryingDl.targetPath) Watcher.ignoreFilePathsDownloading.delete(retryingDl.targetPath)
+
+              TaskManager.taskFinished(task)
+              SocketAuthority.emitter('episode_download_finished', retryingDl.toJSONForClient())
+              SocketAuthority.emitter('episode_download_queued', retryingDl.toJSONForClient())
+
+              setTimeout(() => {
+                this.processQueue()
+              }, 5000)
+              return
+            } else {
+              Logger.warn(`[PodcastManager] Download for "${this.currentDownload.episodeTitle}" exceeded max transient network retries (3). Marking failed.`)
+            }
+          }
+        }
+
         const taskFailedString = {
           text: 'Failed',
           key: 'MessageTaskFailed'
@@ -232,25 +496,53 @@ class PodcastManager {
       }
     } catch (error) {
       Logger.error(`[PodcastManager] Unhandled error during episode download "${this.currentDownload?.episodeTitle}":`, error)
+      const isNetErr = isNetworkError(error)
+      const online = await isOnline(4000)
+      if (isNetErr || !online) {
+        if (!online) {
+          Logger.warn(`[PodcastManager] Network outage during exception on "${this.currentDownload?.episodeTitle}". Pausing queue.`)
+          isNetworkPaused = true
+          if (this.currentDownload) {
+            this.currentDownload.isRetrying = true
+            this.currentDownload.setProgress(null, null, null)
+            const pausedDl = this.currentDownload
+            this.currentDownload = null
+            this.downloadQueue.unshift(pausedDl)
+            await this.saveQueue()
+
+            if (pausedDl.libraryItem?.path) Watcher.removeIgnoreDir(pausedDl.libraryItem.path)
+            if (pausedDl.targetPath) Watcher.ignoreFilePathsDownloading.delete(pausedDl.targetPath)
+
+            TaskManager.taskFinished(task)
+            SocketAuthority.emitter('episode_download_finished', pausedDl.toJSONForClient())
+            SocketAuthority.emitter('episode_download_queued', pausedDl.toJSONForClient())
+          }
+          this.pauseQueueForNetwork()
+          return
+        }
+      }
       task.setFailed({ text: 'Failed', key: 'MessageTaskFailed' })
       if (this.currentDownload) this.currentDownload.setFinished(false)
     } finally {
-      TaskManager.taskFinished(task)
+      if (!isNetworkPaused) {
+        TaskManager.taskFinished(task)
 
-      if (this.currentDownload) {
-        SocketAuthority.emitter('episode_download_finished', this.currentDownload.toJSONForClient())
+        if (this.currentDownload) {
+          SocketAuthority.emitter('episode_download_finished', this.currentDownload.toJSONForClient())
 
-        if (this.currentDownload.libraryItem?.path) {
-          Watcher.removeIgnoreDir(this.currentDownload.libraryItem.path)
+          if (this.currentDownload.libraryItem?.path) {
+            Watcher.removeIgnoreDir(this.currentDownload.libraryItem.path)
+          }
+          if (this.currentDownload.targetPath) {
+            Watcher.ignoreFilePathsDownloading.delete(this.currentDownload.targetPath)
+          }
+          this.currentDownload = null
+          await this.saveQueue()
         }
-        if (this.currentDownload.targetPath) {
-          Watcher.ignoreFilePathsDownloading.delete(this.currentDownload.targetPath)
-        }
-        this.currentDownload = null
-      }
 
-      if (this.downloadQueue.length) {
-        this.startPodcastEpisodeDownload(this.downloadQueue.shift())
+        if (!this.isQueuePausedForNetwork && !this.isStopping && this.downloadQueue.length) {
+          this.processQueue()
+        }
       }
     }
   }
@@ -849,6 +1141,7 @@ class PodcastManager {
     if (libraryId && _currentDownload?.libraryId !== libraryId) _currentDownload = null
 
     return {
+      isPausedForNetwork: this.isQueuePausedForNetwork,
       currentDownload: _currentDownload?.toJSONForClient(),
       queue: this.downloadQueue.filter((item) => !libraryId || item.libraryId === libraryId).map((item) => item.toJSONForClient())
     }

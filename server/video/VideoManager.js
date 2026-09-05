@@ -428,6 +428,8 @@ class VideoManager {
           if (lineBuffer) processLine(lineBuffer)
           if (code !== 0) {
             const err = new Error(`yt-dlp exited with code ${code}${signal ? ` (signal ${signal})` : ''}`)
+            err.stderr = stderrBuffer
+            err.code = code
             Logger.error(`[VideoManager] Download failed: ${err.message}`)
             return activeDownload.reject(err)
           }

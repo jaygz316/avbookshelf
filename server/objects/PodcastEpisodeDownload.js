@@ -29,6 +29,48 @@ class PodcastEpisodeDownload {
     this.progress = null // 0-100 percent
     this.progressSpeed = null // e.g. '5.23MiB/s'
     this.progressEta = null // e.g. '00:05'
+
+    this.networkRetryCount = 0
+    this.isRetrying = false
+  }
+
+  toJSONForStorage() {
+    return {
+      id: this.id,
+      url: this.url,
+      rssPodcastEpisode: this.rssPodcastEpisode,
+      libraryItemId: this.libraryItemId,
+      libraryId: this.libraryId || null,
+      isAutoDownload: this.isAutoDownload,
+      appendRandomId: this.appendRandomId,
+      targetFilename: this.targetFilename,
+      startedAt: this.startedAt,
+      createdAt: this.createdAt,
+      networkRetryCount: this.networkRetryCount || 0
+    }
+  }
+
+  /**
+   * Reconstruct PodcastEpisodeDownload from serialized JSON and existing LibraryItem
+   * @param {object} data
+   * @param {import('../models/LibraryItem')} libraryItem
+   * @returns {PodcastEpisodeDownload|null}
+   */
+  static fromJSON(data, libraryItem) {
+    if (!data || !libraryItem) return null
+    const download = new PodcastEpisodeDownload()
+    download.id = data.id || uuidv4()
+    download.url = data.url
+    download.rssPodcastEpisode = data.rssPodcastEpisode
+    download.libraryItem = libraryItem
+    download.libraryId = data.libraryId || libraryItem?.libraryId || null
+    download.isAutoDownload = !!data.isAutoDownload
+    download.appendRandomId = !!data.appendRandomId
+    download.targetFilename = data.targetFilename || download.getSanitizedFilename(download.rssPodcastEpisode?.title || '')
+    download.createdAt = data.createdAt || Date.now()
+    download.startedAt = data.startedAt || null
+    download.networkRetryCount = data.networkRetryCount || 0
+    return download
   }
 
   toJSONForClient() {
