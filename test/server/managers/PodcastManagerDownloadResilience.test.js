@@ -241,5 +241,32 @@ describe('PodcastManager & Download Resilience', () => {
       expect(savedData.queue).to.have.lengthOf(1)
       expect(savedData.queue[0].url).to.equal('https://example.com/stopping.mp3')
     })
+
+    it('should have globals properly defined and not throw ReferenceError in scanAddPodcastEpisodeMediaFile', async () => {
+      const mockItem = { id: 'item-globals-test', path: Path.join(testMetaDir, 'itemGlobals'), libraryId: 'lib-1' }
+      await fs.ensureDir(mockItem.path)
+      const fakeMediaFile = Path.join(mockItem.path, 'test_episode.mp4')
+      await fs.writeFile(fakeMediaFile, 'fake-mp4-data')
+
+      const dl = new PodcastEpisodeDownload()
+      dl.setData({ title: 'Globals Test', enclosure: { url: 'https://example.com/test.mp4' } }, mockItem, true, 'lib-1')
+      dl.targetPath = fakeMediaFile
+      dl.targetRelPath = 'test_episode.mp4'
+
+      manager.currentDownload = dl
+
+      // Mock probeVideoFile so probe doesn't require real ffmpeg on fake file
+      manager.probeVideoFile = async () => null
+
+      // If globals was not defined, this would reject/throw ReferenceError: globals is not defined
+      let thrownError = null
+      try {
+        await manager.scanAddPodcastEpisodeMediaFile()
+      } catch (err) {
+        thrownError = err
+      }
+
+      expect(thrownError).to.be.null
+    })
   })
 })
