@@ -15,6 +15,7 @@ const prober = require('../utils/prober')
 const ffmpegHelpers = require('../utils/ffmpegHelpers')
 const PodcastFinder = require('../finders/PodcastFinder')
 const { isOnline, isNetworkError } = require('../utils/networkUtils')
+const globals = require('../utils/globals')
 
 const TaskManager = require('./TaskManager')
 const CoverManager = require('../managers/CoverManager')
