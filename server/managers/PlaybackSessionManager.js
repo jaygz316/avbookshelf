@@ -405,8 +405,11 @@ class PlaybackSessionManager {
     const updateResponse = await user.createUpdateMediaProgressFromPayload({
       libraryItemId: libraryItem.id,
       episodeId: session.episodeId,
-      // duration no longer required (v2.15.1) but used if available
-      duration: syncData.duration || session.duration || 0,
+      // Prefer authoritative session.duration; only fallback to syncData.duration if session.duration is unset
+      // and ensure duration is not less than currentTime (which happens with chapter-clipped players)
+      duration: (session.duration && session.duration > 0)
+        ? session.duration
+        : (syncData.duration && (!syncData.currentTime || syncData.duration >= syncData.currentTime) ? syncData.duration : (session.duration || 0)),
       currentTime: syncData.currentTime,
       progress: session.progress,
       markAsFinishedTimeRemaining: library.librarySettings.markAsFinishedTimeRemaining,
