@@ -11,7 +11,18 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY client/ ./
 RUN npm run generate
 
-### STAGE 1: Build server ###
+### STAGE 1: Compile server on the builder CPU (avoid QEMU SIGILL from tsc on arm64) ###
+FROM --platform=$BUILDPLATFORM node:20-alpine AS compile-server
+
+WORKDIR /server
+COPY package*.json tsconfig.server.json ./
+RUN --mount=type=cache,target=/root/.npm \
+  npm ci --include=dev --ignore-scripts
+COPY index.js ./
+COPY server/ ./server/
+RUN npm run build:server
+
+### STAGE 2: Install native server deps for the target arch ###
 FROM node:20-alpine AS build-server
 
 ARG NUSQLITE3_DIR
@@ -28,6 +39,7 @@ RUN apk add --no-cache --update \
 
 WORKDIR /server
 COPY package*.json ./
+COPY --from=compile-server /server/dist-server /server/dist-server
 
 RUN case "$TARGETPLATFORM" in \
   "linux/amd64") \
@@ -36,16 +48,14 @@ RUN case "$TARGETPLATFORM" in \
   curl -L -o /tmp/library.zip "https://github.com/mikiher/nunicode-sqlite/releases/download/v1.2/libnusqlite3-linux-musl-arm64.zip" ;; \
   *) echo "Unsupported platform: $TARGETPLATFORM" && exit 1 ;; \
   esac && \
+  mkdir -p $NUSQLITE3_DIR && \
   unzip /tmp/library.zip -d $NUSQLITE3_DIR && \
   rm /tmp/library.zip
 
 RUN --mount=type=cache,target=/root/.npm \
-  npm ci --only=production
+  npm ci --omit=dev
 
-COPY index.js /server/
-COPY server/ /server/server/
-
-### STAGE 2: Create minimal runtime image ###
+### STAGE 3: Create minimal runtime image ###
 FROM node:20-alpine
 
 ARG NUSQLITE3_DIR
@@ -85,5 +95,4 @@ ENV NUSQLITE3_DIR=${NUSQLITE3_DIR}
 ENV NUSQLITE3_PATH=${NUSQLITE3_PATH}
 
 ENTRYPOINT ["tini", "--"]
-CMD ["node", "index.js"]
-
+CMD ["node", "dist-server/index.js"]
