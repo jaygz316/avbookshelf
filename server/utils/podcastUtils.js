@@ -5,6 +5,7 @@ const globals = require('./globals')
 const { xmlToJSON, timestampToSeconds, levenshteinSimilarity } = require('./index')
 const htmlSanitizer = require('../utils/htmlSanitizer')
 const Fuse = require('../libs/fusejs')
+const { parseDateToTimestampAndString } = require('./parsers/parseInfoJsonMetadata')
 
 /**
  * @typedef RssPodcastChapter
@@ -70,7 +71,7 @@ function extractStringOrStringify(json) {
       return json[Object.keys(json)[0]][0]
     }
     // Handles case where html was included without being wrapped in CDATA
-    return JSON.stringify(value)
+    return JSON.stringify(json)
   } catch {
     return ''
   }
