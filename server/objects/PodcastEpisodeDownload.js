@@ -140,6 +140,9 @@ class PodcastEpisodeDownload {
   get targetRelPath() {
     return this.targetFilename
   }
+  set targetRelPath(val) {
+    this.targetFilename = val
+  }
   get libraryItemId() {
     return this.libraryItem?.id || null
   }

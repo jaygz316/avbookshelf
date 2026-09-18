@@ -268,13 +268,11 @@ describe('LibraryFile Video File Type Detection', () => {
   })
 
   it('should support synchronous metadata loading with setDataFromPathSync', () => {
-    const Path = require('path')
     const lf = new LibraryFile()
-    const testPath = Path.join(__dirname, '../../../package.json')
-    const res = lf.setDataFromPathSync(testPath, 'package.json')
+    const res = lf.setDataFromPathSync(__filename, 'podcastUtilsVideo.test.js')
     expect(res).to.be.true
     expect(lf.ino).to.not.be.null
-    expect(lf.metadata.filename).to.equal('package.json')
+    expect(lf.metadata.filename).to.equal('podcastUtilsVideo.test.js')
   })
 })
 
