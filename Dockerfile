@@ -1,8 +1,9 @@
+ARG NODE_IMAGE="public.ecr.aws/docker/library/node:20-alpine"
 ARG NUSQLITE3_DIR="/usr/local/lib/nusqlite3"
 ARG NUSQLITE3_PATH="${NUSQLITE3_DIR}/libnusqlite3.so"
 
 ### STAGE 0: Build client (Natively on host CPU via $BUILDPLATFORM) ###
-FROM --platform=$BUILDPLATFORM node:20-alpine AS build-client
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build-client
 
 WORKDIR /client
 COPY client/package*.json ./
@@ -12,7 +13,7 @@ COPY client/ ./
 RUN npm run generate
 
 ### STAGE 1: Compile server on the builder CPU (avoid QEMU SIGILL from tsc on arm64) ###
-FROM --platform=$BUILDPLATFORM node:20-alpine AS compile-server
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS compile-server
 
 WORKDIR /server
 COPY package*.json tsconfig.server.json ./
@@ -23,7 +24,7 @@ COPY server/ ./server/
 RUN npm run build:server
 
 ### STAGE 2: Install native server deps for the target arch ###
-FROM node:20-alpine AS build-server
+FROM ${NODE_IMAGE} AS build-server
 
 ARG NUSQLITE3_DIR
 ARG TARGETPLATFORM
@@ -56,7 +57,7 @@ RUN --mount=type=cache,target=/root/.npm \
   npm ci --omit=dev
 
 ### STAGE 3: Create minimal runtime image ###
-FROM node:20-alpine
+FROM ${NODE_IMAGE}
 
 ARG NUSQLITE3_DIR
 ARG NUSQLITE3_PATH
