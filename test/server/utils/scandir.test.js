@@ -49,4 +49,30 @@ describe('scanUtils', async () => {
       'Author/Series2/Book5/deeply/nested': ['cd 01/audiofile.mp3', 'cd 02/audiofile.mp3']
     })
   })
+
+  describe('getBookDataFromDir', () => {
+    it('should parse author, series, title, and publishedYear without strict mode reference errors', () => {
+      const data = scanUtils.getBookDataFromDir('J.K. Rowling/Harry Potter/2001 - Harry Potter and the Sorcerer\'s Stone')
+      expect(data.seriesName).to.equal('Harry Potter')
+      expect(data.authors).to.deep.equal(['J.K. Rowling'])
+      expect(data.title).to.equal('Harry Potter and the Sorcerer\'s Stone')
+      expect(data.publishedYear).to.equal('2001')
+    })
+
+    it('should handle single directory without throwing reference errors', () => {
+      const data = scanUtils.getBookDataFromDir('Standalone Audiobook')
+      expect(data.seriesName).to.be.null
+      expect(data.authors).to.deep.equal([])
+      expect(data.title).to.equal('Standalone Audiobook')
+    })
+  })
+
+  describe('getPublishedYear', () => {
+    it('should extract published year using regex pattern', () => {
+      const [folder, year] = scanUtils.getPublishedYear('1999 - Some Great Book')
+      expect(year).to.equal('1999')
+      expect(folder).to.equal('Some Great Book')
+    })
+  })
 })
+
