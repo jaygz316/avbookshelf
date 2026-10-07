@@ -1,3 +1,18 @@
+const sentryDsn = process.env.SENTRY_DSN || process.env.GLITCHTIP_DSN
+if (sentryDsn) {
+  try {
+    const Sentry = require('@sentry/node')
+    Sentry.init({
+      dsn: sentryDsn,
+      environment: process.env.NODE_ENV || 'production',
+      release: `audiobookshelf@${require('./package.json').version}`
+    })
+    console.log('[GlitchTip] Error monitoring active')
+  } catch (err) {
+    console.error('[GlitchTip] Failed to initialize Sentry:', err)
+  }
+}
+
 const optionDefinitions = [
   { name: 'config', alias: 'c', type: String },
   { name: 'metadata', alias: 'm', type: String },
