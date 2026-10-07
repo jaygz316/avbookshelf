@@ -516,10 +516,7 @@ class LibraryScanner {
         attributes: ['id', 'path'],
         where: {
           path: {
-            [sequelize.Op.not]: fullPath
-          },
-          path: {
-            [sequelize.Op.startsWith]: fullPath
+            [sequelize.Op.startsWith]: fullPath + '/'
           }
         }
       })
@@ -532,10 +529,7 @@ class LibraryScanner {
         attributes: ['id', 'path'],
         where: {
           path: {
-            [sequelize.Op.not]: altFullPath
-          },
-          path: {
-            [sequelize.Op.startsWith]: altFullPath
+            [sequelize.Op.startsWith]: altFullPath + '/'
           }
         }
       })
