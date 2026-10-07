@@ -1,4 +1,4 @@
-ARG NODE_IMAGE="public.ecr.aws/docker/library/node:20-alpine"
+ARG NODE_IMAGE="public.ecr.aws/docker/library/node:24-alpine"
 ARG NUSQLITE3_DIR="/usr/local/lib/nusqlite3"
 ARG NUSQLITE3_PATH="${NUSQLITE3_DIR}/libnusqlite3.so"
 

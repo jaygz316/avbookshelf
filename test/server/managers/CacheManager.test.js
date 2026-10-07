@@ -48,12 +48,15 @@ describe('CacheManager', function () {
     sinon.restore()
   })
 
+  const testItemId = '11111111-1111-4111-8111-111111111111'
+  const testAuthorId = '22222222-2222-4222-8222-222222222222'
+
   describe('handleCoverCache', function () {
     it('should handle cached cover and attach error handler to readStream', async function () {
       sinon.stub(fs, 'pathExists').resolves(true)
       sinon.stub(fs, 'createReadStream').returns(fakeReadStream)
 
-      await CacheManager.handleCoverCache(mockRes, 'item-1')
+      await CacheManager.handleCoverCache(mockRes, testItemId)
 
       expect(mockRes.type.calledWith('image/webp')).to.be.true
       expect(fakeReadStream.pipe.calledWith(mockRes)).to.be.true
@@ -65,10 +68,10 @@ describe('CacheManager', function () {
         if (path.includes('cache')) return false
         return true
       })
-      sinon.stub(ffmpegHelpers, 'resizeImage').resolves('/cache/covers/item-1_400.webp')
+      sinon.stub(ffmpegHelpers, 'resizeImage').resolves(`/cache/covers/${testItemId}_400.webp`)
       sinon.stub(fs, 'createReadStream').returns(fakeReadStream)
 
-      await CacheManager.handleCoverCache(mockRes, 'item-1')
+      await CacheManager.handleCoverCache(mockRes, testItemId)
 
       expect(fakeReadStream.pipe.calledWith(mockRes)).to.be.true
       expect(fakeReadStream.listenerCount('error')).to.be.greaterThan(0)
@@ -80,7 +83,7 @@ describe('CacheManager', function () {
       sinon.stub(fs, 'pathExists').resolves(true)
       sinon.stub(fs, 'createReadStream').returns(fakeReadStream)
 
-      await CacheManager.handleAuthorCache(mockRes, 'author-1')
+      await CacheManager.handleAuthorCache(mockRes, testAuthorId)
 
       expect(mockRes.type.calledWith('image/webp')).to.be.true
       expect(fakeReadStream.pipe.calledWith(mockRes)).to.be.true
@@ -92,10 +95,10 @@ describe('CacheManager', function () {
         if (path.includes('cache')) return false
         return true
       })
-      sinon.stub(ffmpegHelpers, 'resizeImage').resolves('/cache/images/author-1_400.webp')
+      sinon.stub(ffmpegHelpers, 'resizeImage').resolves(`/cache/images/${testAuthorId}_400.webp`)
       sinon.stub(fs, 'createReadStream').returns(fakeReadStream)
 
-      await CacheManager.handleAuthorCache(mockRes, 'author-1')
+      await CacheManager.handleAuthorCache(mockRes, testAuthorId)
 
       expect(fakeReadStream.pipe.calledWith(mockRes)).to.be.true
       expect(fakeReadStream.listenerCount('error')).to.be.greaterThan(0)

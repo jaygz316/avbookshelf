@@ -4,7 +4,12 @@ const stream = require('stream')
 const Logger = require('../Logger')
 const ffmpegHelpers = require('../utils/ffmpegHelpers')
 const { encodeUriPath } = require('../utils/fileUtils')
+const { isUUID } = require('../utils/index')
 const Database = require('../Database')
+
+function isValidCacheDimension(dimension) {
+  return Number.isSafeInteger(dimension) && dimension > 0
+}
 
 class CacheManager {
   constructor() {
@@ -40,7 +45,9 @@ class CacheManager {
     const width = options.width || 400
     const height = options.height || null
 
-    if (!['webp', 'jpeg', 'png'].includes(format)) return res.sendStatus(400)
+    if (!['webp', 'jpeg', 'png'].includes(format) || !isUUID(libraryItemId) || !isValidCacheDimension(width) || (height !== null && !isValidCacheDimension(height))) {
+      return res.sendStatus(400)
+    }
     res.type(`image/${format}`)
 
     const cachePath = Path.join(this.CoverCachePath, `${libraryItemId}_${width}${height ? `x${height}` : ''}`) + '.' + format
@@ -151,7 +158,9 @@ class CacheManager {
     const width = options.width || 400
     const height = options.height || null
 
-    if (!['webp', 'jpeg', 'png'].includes(format)) return res.sendStatus(400)
+    if (!['webp', 'jpeg', 'png'].includes(format) || !isUUID(authorId) || !isValidCacheDimension(width) || (height !== null && !isValidCacheDimension(height))) {
+      return res.sendStatus(400)
+    }
     res.type(`image/${format}`)
 
     var cachePath = Path.join(this.ImageCachePath, `${authorId}_${width}${height ? `x${height}` : ''}`) + '.' + format
