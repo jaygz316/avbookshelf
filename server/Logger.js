@@ -132,10 +132,32 @@ class Logger {
   }
 
   error(...args) {
+    if (process.env.SENTRY_DSN || process.env.GLITCHTIP_DSN) {
+      try {
+        const Sentry = require('@sentry/node')
+        const first = args[0]
+        if (first instanceof Error) {
+          Sentry.captureException(first)
+        } else {
+          Sentry.captureMessage(args.map((a) => (typeof a !== 'string' ? util.inspect(a) : a)).join(' '), 'error')
+        }
+      } catch (_) {}
+    }
     this.#log('ERROR', this.source, ...args)
   }
 
   fatal(...args) {
+    if (process.env.SENTRY_DSN || process.env.GLITCHTIP_DSN) {
+      try {
+        const Sentry = require('@sentry/node')
+        const first = args[0]
+        if (first instanceof Error) {
+          Sentry.captureException(first)
+        } else {
+          Sentry.captureMessage(args.map((a) => (typeof a !== 'string' ? util.inspect(a) : a)).join(' '), 'fatal')
+        }
+      } catch (_) {}
+    }
     return this.#log('FATAL', this.source, ...args)
   }
 
