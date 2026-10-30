@@ -216,5 +216,34 @@ describe('old JSON serialization', () => {
       expect(expanded).to.have.property('libraryFiles')
       expect(expanded.media.numEpisodes).to.equal(expanded.media.episodes.length)
     })
+
+    it('findAllExpandedWhere expands books and podcasts like getExpandedById', async () => {
+      const libraryItems = await Database.libraryItemModel.findAllExpandedWhere({ id: [bookLibraryItemId, podcastLibraryItemId] })
+      expect(libraryItems).to.have.lengthOf(2)
+
+      for (const id of [bookLibraryItemId, podcastLibraryItemId]) {
+        const found = libraryItems.find((li) => li.id === id)
+        const single = await Database.libraryItemModel.getExpandedById(id)
+        expect(found.toOldJSONExpanded()).to.deep.equal(single.toOldJSONExpanded())
+      }
+      const podcastItem = libraryItems.find((li) => li.id === podcastLibraryItemId)
+      expect(podcastItem.media.podcastEpisodes.map((ep) => ep.title)).to.have.members(['Episode 1', 'Episode 2 (Video)'])
+    })
+
+    it('findAllExpandedWhere loads podcast episodes without joining them to the library item', async () => {
+      const queries = []
+      const originalLogging = Database.sequelize.options.logging
+      Database.sequelize.options.logging = (sql) => queries.push(sql)
+      try {
+        await Database.libraryItemModel.findAllExpandedWhere({ id: [podcastLibraryItemId] })
+      } finally {
+        Database.sequelize.options.logging = originalLogging
+      }
+
+      const itemQuery = queries.find((sql) => sql.includes('FROM `libraryItems`'))
+      expect(itemQuery).to.be.a('string')
+      expect(itemQuery).to.not.include('podcastEpisodes')
+      expect(queries.some((sql) => sql.includes('FROM `podcastEpisodes`'))).to.equal(true)
+    })
   })
 })

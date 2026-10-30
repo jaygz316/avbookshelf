@@ -148,7 +148,7 @@ class LibraryItem extends Model {
    * @returns {Promise<LibraryItemExpanded[]>}
    */
   static async findAllExpandedWhere(where = null) {
-    return this.findAll({
+    const libraryItems = await this.findAll({
       where,
       include: [
         {
@@ -169,10 +169,7 @@ class LibraryItem extends Model {
           ]
         },
         {
-          model: this.sequelize.models.podcast,
-          include: {
-            model: this.sequelize.models.podcastEpisode
-          }
+          model: this.sequelize.models.podcast
         }
       ],
       order: [
@@ -181,6 +178,26 @@ class LibraryItem extends Model {
         [this.sequelize.models.book, this.sequelize.models.series, 'bookSeries', 'createdAt', 'ASC']
       ]
     })
+
+    // Episodes in a query of their own: joined in, every episode row repeats the whole library item
+    // (its libraryFiles run to hundreds of KB on a big podcast), so one podcast with a thousand
+    // episodes made this query build hundreds of MB and block the server for seconds.
+    // (`separate: true` can't do it: the afterFind hook moves `podcast` to `media` first.)
+    const podcasts = libraryItems.filter((li) => li.mediaType === 'podcast' && li.media).map((li) => li.media)
+    if (podcasts.length) {
+      const episodes = await this.sequelize.models.podcastEpisode.findAll({
+        where: { podcastId: podcasts.map((p) => p.id) }
+      })
+      const episodesByPodcast = new Map(podcasts.map((p) => [p.id, []]))
+      for (const episode of episodes) {
+        episodesByPodcast.get(episode.podcastId)?.push(episode)
+      }
+      for (const podcast of podcasts) {
+        podcast.podcastEpisodes = episodesByPodcast.get(podcast.id)
+        podcast.dataValues.podcastEpisodes = podcast.podcastEpisodes
+      }
+    }
+    return libraryItems
   }
 
   /**
