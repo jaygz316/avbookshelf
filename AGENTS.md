@@ -43,6 +43,7 @@ AVBookshelf is a fork of [Audiobookshelf](https://github.com/advplyr/audiobooksh
 - **Run tests**:
   ```bash
   npm test
+  cd client && npm test
   ```
 - **Build frontend static bundle**:
   ```bash

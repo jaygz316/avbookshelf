@@ -266,6 +266,7 @@ export default {
       dragMouseStart: { x: 0, y: 0 },
       dragPosStart: { left: 0, top: 0 },
       isScrubbing: false,
+      didScrubPointerDown: false,
       scrubPercent: null,
       scrubTime: null
     }
@@ -475,12 +476,17 @@ export default {
       return { time: pct * this.duration, perc: pct * 100 }
     },
     onScrubberClick(e) {
+      if (this.didScrubPointerDown) {
+        this.didScrubPointerDown = false
+        return
+      }
       const { time } = this.getTimeFromEvent(e)
       this.$emit('seek', time)
     },
     startScrub(e) {
       if (!this.duration || !this.$refs.scrubberTrack) return
       this.isScrubbing = true
+      this.didScrubPointerDown = true
       const { time, perc } = this.getTimeFromEvent(e)
       this.scrubPercent = perc
       this.scrubTime = time
@@ -496,13 +502,11 @@ export default {
       this.scrubTime = time
       this.$emit('seek', time)
     },
-    onScrubEnd(e) {
+    onScrubEnd() {
       if (!this.isScrubbing) return
       this.isScrubbing = false
-      const { time } = this.getTimeFromEvent(e)
       this.scrubPercent = null
       this.scrubTime = null
-      this.$emit('seek', time)
 
       window.removeEventListener('mousemove', this.onScrubMove)
       window.removeEventListener('mouseup', this.onScrubEnd)
@@ -510,6 +514,7 @@ export default {
     startTouchScrub(e) {
       if (!this.duration || !this.$refs.scrubberTrack) return
       this.isScrubbing = true
+      this.didScrubPointerDown = true
       const { time, perc } = this.getTimeFromEvent(e)
       this.scrubPercent = perc
       this.scrubTime = time
@@ -526,13 +531,11 @@ export default {
       this.scrubTime = time
       this.$emit('seek', time)
     },
-    onTouchScrubEnd(e) {
+    onTouchScrubEnd() {
       if (!this.isScrubbing) return
       this.isScrubbing = false
-      const { time } = this.getTimeFromEvent(e)
       this.scrubPercent = null
       this.scrubTime = null
-      this.$emit('seek', time)
 
       window.removeEventListener('touchmove', this.onTouchScrubMove)
       window.removeEventListener('touchend', this.onTouchScrubEnd)

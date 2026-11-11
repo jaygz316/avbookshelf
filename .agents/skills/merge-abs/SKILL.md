@@ -119,8 +119,9 @@ Core video functionality lives in isolated directories (`server/video/` and `cli
    ```
    All tests must pass before pushing.
 
-3. Verify the client static build succeeds:
+3. Run the client Cypress component tests and verify the client static build succeeds:
    ```bash
+   cd client && npm test && cd ..
    npm run client
    ```
 
