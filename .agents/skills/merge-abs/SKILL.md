@@ -84,17 +84,20 @@ Core video functionality lives in isolated directories (`server/video/` and `cli
 ### 5. `server/models/LibraryItem.js`
 - Keep the `separate: true` query optimization on ` podcastEpisodes` in `findAllExpandedWhere` (commit `73766167`) unless upstream implemented an equivalent fix.
 
-### 6. `index.js` & `server/Logger.js`
+### 6. `server/routers/ApiRouter.js`
+- Keep `/items/:id/episode/:episodeId/thumbnail`, `/podcasts/feed/match-itunes`, `/podcasts/:id/download-yt-episode`, `/yt-dlp/status`, and `/yt-dlp/info` routes alongside upstream route middleware updates (such as `requireUploadPermission, fileUploadParser`).
+
+### 7. `index.js` & `server/Logger.js`
 - Keep GlitchTip/Sentry initialization (`@sentry/node`) and error capture hooks (commit `f6fa0578`).
 
-### 7. `client/components/app/MediaPlayerContainer.vue`
+### 8. `client/components/app/MediaPlayerContainer.vue`
 - Keep video element mounting and container height methods (`mountVideoElement`, `updatePlayerHeightCss`).
 - Keep `isVideoEpisode` checks for player sizing, PiP, and floating mini-player.
 
-### 8. `Dockerfile`
+### 9. `Dockerfile`
 - Keep `ffmpeg`, `libva-utils`, `python3`, `py3-pip`, `yt-dlp`, and x86_64 Intel VA-API drivers (`intel-media-driver`, `libva-intel-driver`) in the runtime stage.
 
-### 9. `package.json` & `package-lock.json`
+### 10. `package.json` & `package-lock.json`
 - Accept upstream version bumps and dependency updates.
 - Keep `"@sentry/node"` in `dependencies`.
 - Keep `"jaygz/avbookshelf"` as the target image repository in the `docker`, `docker-amd64-local`, and `docker-arm64-local` scripts (never revert to `advplyr/audiobookshelf`).
@@ -104,9 +107,10 @@ Core video functionality lives in isolated directories (`server/video/` and `cli
 
 ## 5. Post-merge verification
 
-1. Install server and client dependencies:
+1. Install server dependencies and clear stale incremental TypeScript build cache:
    ```bash
    npm install
+   rm -rf dist-server
    ```
 
 2. Run the server build and test suite:
