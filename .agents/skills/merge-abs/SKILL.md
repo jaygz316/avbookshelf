@@ -2,42 +2,38 @@
 name: merge-abs
 description: >-
   Merges upstream updates from the original Audiobookshelf repository (advplyr/audiobookshelf)
-  into this AVBookshelf fork, handles conflict resolution across video subsystem touchpoints,
-  runs tests, and verifies compatibility. Use whenever the user asks to sync, update, or merge
-  from upstream audiobookshelf.
+  into this AVBookshelf fork, resolves conflicts across video and monitoring touchpoints,
+  runs tests, pushes to GitHub (jaygz316/avbookshelf), and builds and pushes the multi-arch
+  Docker image to Docker Hub (jaygz/avbookshelf). Trigger whenever the user says "/merge-abs",
+  "merge-abs", or asks to sync, update, merge upstream, and publish AVBookshelf.
 ---
 
 # Merge Upstream Audiobookshelf (`merge-abs`)
 
-This skill provides the end-to-end workflow for pulling, merging, resolving conflicts, and validating updates from the upstream `advplyr/audiobookshelf` repository into this fork (`jaygz316/avbookshelf`).
+This skill runs the full pipeline for pulling upstream updates from `advplyr/audiobookshelf`, resolving conflicts in `jaygz316/avbookshelf`, verifying the test suite, pushing to GitHub, and publishing a new multi-arch image to Docker Hub (`jaygz/avbookshelf`).
 
 ---
 
-## 1. Pre-Merge Checks
+## 1. Pre-merge checks
 
-1. Verify git remotes are properly configured:
+1. Verify git remotes:
    ```bash
    git remote -v
    ```
-   - `origin` must point to `https://github.com/jaygz316/avbookshelf.git`
-   - `upstream` must point to `https://github.com/advplyr/audiobookshelf.git` (if missing, add with `git remote add upstream https://github.com/advplyr/audiobookshelf.git`)
+   - `origin` must point to `https://github.com/jaygz316/avbookshelf.git` (or SSH equivalent).
+   - `upstream` must point to `https://github.com/advplyr/audiobookshelf.git` (if missing, run `git remote add upstream https://github.com/advplyr/audiobookshelf.git`).
 
-2. Ensure working tree is clean:
+2. Ensure the working tree is clean:
    ```bash
    git status
    ```
-   If uncommitted changes exist, commit or stash them before proceeding:
-   ```bash
-   git commit -am "chore: save local state before upstream merge"
-   # OR
-   git stash
-   ```
+   If uncommitted changes exist, stop and ask the user whether to commit or stash them before merging.
 
 ---
 
-## 2. Fetch Upstream Changes
+## 2. Fetch upstream changes
 
-Fetch the latest branches and tags from upstream:
+Fetch the latest commits and tags from upstream:
 ```bash
 git fetch upstream --tags
 ```
@@ -49,91 +45,113 @@ git log HEAD..upstream/master --oneline -20
 
 ---
 
-## 3. Execute the Merge
+## 3. Merge upstream
 
-Ensure you are on the `master` branch and merge upstream:
+Check out `master` and merge `upstream/master`:
 
 ```bash
 git checkout master
-git merge upstream/master
+git merge upstream/master --no-edit
 ```
 
-*(Optional: To merge a specific release tag instead of master, run `git merge <tag_name>`, e.g. `git merge v2.37.0`)*
-
 ---
 
-## 4. Conflict Resolution Guide
+## 4. Conflict resolution guide
 
-Because video subsystem functionality is isolated in `server/video/` and `client/video/`, new files will merge without conflict. If conflicts occur in modified upstream files, resolve them using this checklist:
+Core video functionality lives in isolated directories (`server/video/` and `client/video/`). When conflicts happen in shared upstream files, preserve these AVBookshelf additions while keeping upstream bug fixes and features:
 
 ### 1. `server/controllers/PodcastController.js`
-- **What to preserve**:
-  - `mapVideoInfoToEpisode` import and invocation inside `downloadYtDlpEpisode`.
-  - YouTube feed handling and singleton `require('../video').videoManager` usage in `getPodcastFeed`.
-  - `matchFeedEpisodes` route handler for iTunes episode matching.
-- **Rule**: Accept all upstream bug fixes/features while ensuring the video download & feed branches remain intact.
+- Keep `mapVideoInfoToEpisode` import and call inside `downloadYtDlpEpisode`.
+- Keep YouTube feed handling and `require('../video').videoManager` usage in `getPodcastFeed`.
+- Keep `matchFeedEpisodes` route handler for iTunes episode matching.
 
 ### 2. `server/scanner/Scanner.js`
-- **What to preserve**:
-  - The `quickMatchYouTubeEpisodes` method.
-  - The dispatch logic in `quickMatchPodcastEpisodes`:
-    ```javascript
-    if (isYouTube) {
-      return this.quickMatchYouTubeEpisodes(libraryItem, options)
-    }
-    ```
-- **Rule**: Keep upstream logic in `quickMatchPodcastEpisodes` for standard RSS feeds and delegate YouTube feeds to `quickMatchYouTubeEpisodes`.
+- Keep `quickMatchYouTubeEpisodes`.
+- Keep the YouTube branch in `quickMatchPodcastEpisodes`:
+  ```javascript
+  if (isYouTube) {
+    return this.quickMatchYouTubeEpisodes(libraryItem, options)
+  }
+  ```
 
 ### 3. `server/scanner/PodcastScanner.js`
-- **What to preserve**:
-  - Video file probing and scanning logic.
-  - `.info.json` metadata parsing and published date extraction.
-- **Rule**: Preserve the video file discovery and media probe separation hooks.
+- Keep video file probing, media probe separation hooks, and `.info.json` metadata parsing.
 
 ### 4. `server/managers/PodcastManager.js`
-- **What to preserve**:
-  - `isYouTubeFeed` helper method.
-  - `checkYouTubeFeedForNewEpisodes` method.
-  - Video download queue handling in `scanAddPodcastEpisodeMediaFile` and `runEpisodeCheck`.
-- **Rule**: Accept upstream podcast manager updates, keeping YouTube/video checks hooked into the download pipeline.
+- Keep `isYouTubeFeed` and `checkYouTubeFeedForNewEpisodes`.
+- Keep video download queue handling in `scanAddPodcastEpisodeMediaFile` and `runEpisodeCheck`.
 
-### 5. `client/components/app/MediaPlayerContainer.vue`
-- **What to preserve**:
-  - Video element mounting and container height adjustments (`mountVideoElement`, `updatePlayerHeightCss`).
-  - `isVideoEpisode` checks for player sizing, PiP, and floating mini-player.
-- **Rule**: Preserve the reactive video element lifecycle and styling hooks while adopting any upstream audio player improvements.
+### 5. `server/models/LibraryItem.js`
+- Keep the `separate: true` query optimization on ` podcastEpisodes` in `findAllExpandedWhere` (commit `73766167`) unless upstream implemented an equivalent fix.
 
-### 6. `package.json` & `package-lock.json`
-- **Rule**: Accept upstream version bumps and dependencies. If both upstream and local modified `package.json`, preserve both sets of dependencies and run `npm install` to regenerate `package-lock.json`.
+### 6. `index.js` & `server/Logger.js`
+- Keep GlitchTip/Sentry initialization (`@sentry/node`) and error capture hooks (commit `f6fa0578`).
+
+### 7. `client/components/app/MediaPlayerContainer.vue`
+- Keep video element mounting and container height methods (`mountVideoElement`, `updatePlayerHeightCss`).
+- Keep `isVideoEpisode` checks for player sizing, PiP, and floating mini-player.
+
+### 8. `Dockerfile`
+- Keep `ffmpeg`, `libva-utils`, `python3`, `py3-pip`, `yt-dlp`, and x86_64 Intel VA-API drivers (`intel-media-driver`, `libva-intel-driver`) in the runtime stage.
+
+### 9. `package.json` & `package-lock.json`
+- Accept upstream version bumps and dependency updates.
+- Keep `"@sentry/node"` in `dependencies`.
+- Keep `"jaygz/avbookshelf"` as the target image repository in the `docker`, `docker-amd64-local`, and `docker-arm64-local` scripts (never revert to `advplyr/audiobookshelf`).
+- Run `npm install` after resolving `package.json` to regenerate `package-lock.json`.
 
 ---
 
-## 5. Post-Merge Verification
+## 5. Post-merge verification
 
-1. Install updated dependencies:
+1. Install server and client dependencies:
    ```bash
    npm install
    ```
 
-2. Run the test suite:
+2. Run the server build and test suite:
    ```bash
    npm test
    ```
-   **All tests must pass (100%) before finalizing.**
+   All tests must pass before pushing.
 
-3. If any test fails, inspect the stack trace and fix any broken imports, model changes, or method signatures.
+3. Verify the client static build succeeds:
+   ```bash
+   npm run client
+   ```
 
 ---
 
-## 6. Commit & Push
+## 6. Commit and push to GitHub
 
-1. If conflicts were resolved manually:
+1. If conflicts were resolved or lockfiles updated, stage and commit:
    ```bash
-   git add .
+   git add -A
    git commit -m "chore: merge upstream/master updates and resolve conflicts"
    ```
 
-2. Push the merged master to origin:
+2. Push `master` to GitHub (`origin`):
    ```bash
    git push origin master
    ```
+
+---
+
+## 7. Build and push Docker image to Docker Hub
+
+1. Read the current version from `package.json`:
+   ```bash
+   VERSION=$(node -p "require('./package.json').version")
+   echo "Building jaygz/avbookshelf:${VERSION} and jaygz/avbookshelf:latest"
+   ```
+
+2. Build and push the multi-arch image (`linux/amd64,linux/arm64`) to Docker Hub under `jaygz/avbookshelf`:
+   ```bash
+   docker buildx build \
+     --platform linux/amd64,linux/arm64 \
+     --push \
+     -t jaygz/avbookshelf:latest \
+     -t jaygz/avbookshelf:${VERSION} \
+     .
+   ```
+   *(Note: `npm run docker` also builds and pushes `jaygz/avbookshelf:latest` via `buildx`.)*
